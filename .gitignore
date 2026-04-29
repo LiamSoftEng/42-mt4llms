@@ -1,0 +1,20 @@
+# Environment
+.env
+venv/
+ 
+# Results
+results/
+ 
+# HuggingFace cache
+~/.cache/huggingface/
+ 
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+ 
+# OS
+.DS_Store
+Thumbs.db
