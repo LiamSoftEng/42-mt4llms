@@ -21,7 +21,7 @@ TEMPERATURE = 0.2  # Deterministic outputs for reproducibility
 
 # Dataset
 LCB_DATASET = "bzantium/livecodebench"
-LCB_VERSION = "release_v2"
+LCB_VERSION = "release_latest"
 N_SAMPLES = None  # Set to an int (e.g. 10) to limit samples during dev
 
 # Output

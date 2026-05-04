@@ -23,14 +23,20 @@ def parse_args():
         "--n",
         type=int,
         default=None,
-        help="Limit number of samples (default: full dataset). e.g. --n 10",
+        help="Limit number of samples. e.g. --n 10",
+    )
+    parser.add_argument(
+        "--after",
+        type=str,
+        default=None,
+        help="Only include problems on or after this date. e.g. --after 2024-01-01",
     )
     return parser.parse_args()
 
 def main():
     args = parse_args()
 
-    dataset = load_livecode_bench(n_samples=args.n)
+    dataset = load_livecode_bench(n_samples=args.n, after=args.after)
 
     models = [MODEL_CHOICES[name]() for name in args.models]
     print(f"Running models: {[m.model_name for m in models]}")

@@ -7,11 +7,12 @@ Usage:
 """
 
 from datasets import load_dataset
+from config.settings import LCB_DATASET, LCB_VERSION
 import json
 
 ds = load_dataset(
-    "bzantium/livecodebench",
-    name="release_v2",
+    LCB_DATASET,
+    name=LCB_VERSION,
     split="test",
 )
 
