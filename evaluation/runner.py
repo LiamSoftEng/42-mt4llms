@@ -18,6 +18,9 @@ class LLMResult:
     model_name: str
     prompt: str
     response: str
+    public_test_cases: str   # raw JSON string from dataset
+    private_test_cases: str  # raw base64+gzip string from dataset
+    metadata: str            # raw JSON string from dataset
     error: str = ""
 
 
@@ -66,6 +69,9 @@ class PipelineRunner:
                     model_name=model.model_name,
                     prompt=prompt,
                     response=response,
+                    public_test_cases=json.dumps(sample.get("public_test_cases", [])),
+                    private_test_cases=sample.get("private_test_cases", ""),
+                    metadata=json.dumps(sample.get("metadata", {})),
                     error=error,
                 )))
 
@@ -80,4 +86,4 @@ class PipelineRunner:
         out_path = Path(RESULTS_DIR) / f"{safe_name}.json"
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(results, f, indent=2, ensure_ascii=False)
-        print(f"\n  Saved {len(results)} results → {out_path}")
+        print(f"\n  Saved {len(results)} results -> {out_path}")

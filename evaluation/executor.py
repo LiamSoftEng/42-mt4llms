@@ -1,0 +1,70 @@
+"""
+Runs public test cases against model responses.
+"""
+
+import json
+import re
+
+
+def extract_code(response: str) -> str | None:
+    """Pull the Python code block out of the model response."""
+    match = re.search(r"```python\s*(.*?)```", response, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
+def get_all_tests(entry: dict) -> list[dict]:
+    """Parse public test cases from a results entry."""
+    raw = entry.get("public_test_cases", "[]")
+    if isinstance(raw, list):
+        return raw
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, str):
+            parsed = json.loads(parsed)
+        return parsed if isinstance(parsed, list) else []
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+
+def get_func_name(entry: dict) -> str | None:
+    """Extract the function name from metadata (used for functional problems)."""
+    raw = entry.get("metadata", "{}")
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+            if isinstance(raw, str):
+                raw = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return None
+    if not isinstance(raw, dict):
+        return None
+    return raw.get("func_name", None)
+
+
+def run_test(code: str, test: dict, func_name: str | None, debug: bool = False) -> tuple[bool, str, str]:
+    """
+    Run a single test case against the extracted code.
+    Returns (passed, actual_output, error).
+    """
+    testtype = test.get("testtype", "stdin")
+    inp = test.get("input", "")
+    expected = test.get("output", "")
+
+    if testtype == "stdin":
+        from evaluation.harness.stdin import run, check
+        actual, error = run(code, inp)
+        passed = check(actual, expected) if not error else False
+        return passed, actual, error
+
+    elif testtype == "functional":
+        if not func_name:
+            return False, "", "No func_name in metadata"
+        from evaluation.harness.functional import run, check
+        actual, error = run(code, func_name, inp, debug=debug)
+        passed = check(actual, expected) if not error else False
+        return passed, actual, error
+
+    else:
+        return False, "", f"Unknown testtype: {testtype}"

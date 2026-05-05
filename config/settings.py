@@ -9,13 +9,13 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 
-# Model names
+# Model names (TODO: change please, based on knowledge cutoffs + call costs)
 CLAUDE_MODEL = "claude-sonnet-4-6"
 OPENAI_MODEL = "gpt-4o"
 GEMINI_MODEL = "gemini-2.0-flash"
 DEEPSEEK_MODEL = "google/gemma-2-2b-it"
 
-# Generation params
+# Generation params (TODO: adjust as needed)
 MAX_TOKENS = 1024
 TEMPERATURE = 0.2  # Deterministic outputs for reproducibility
 

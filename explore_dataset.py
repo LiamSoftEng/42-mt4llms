@@ -9,6 +9,9 @@ Usage:
 from datasets import load_dataset
 from config.settings import LCB_DATASET, LCB_VERSION
 import json
+from datetime import datetime
+from pathlib import Path
+
 
 ds = load_dataset(
     LCB_DATASET,
@@ -29,3 +32,22 @@ for key, value in sample.items():
     print(f"--- {key} ---")
     print(preview)
     print()
+
+# Write first 10 samples to results/dataset_preview.json
+Path("results").mkdir(exist_ok=True)
+out_path = Path("results") / "dataset_preview.json"
+ 
+records = []
+for sample in ds.select(range(10)):
+    record = {}
+    for key, value in sample.items():
+        if isinstance(value, datetime):
+            record[key] = value.isoformat()
+        else:
+            record[key] = value
+    records.append(record)
+ 
+with open(out_path, "w", encoding="utf-8") as f:
+    json.dump(records, f, indent=2, ensure_ascii=False)
+ 
+print(f"Saved {len(records)} samples -> {out_path}")
