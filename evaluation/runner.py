@@ -19,26 +19,19 @@ class LLMResult:
     prompt: str
     response: str
     public_test_cases: str   # raw JSON string from dataset
-    private_test_cases: str  # raw base64+gzip string from dataset
+    private_test_cases: str  # raw base64 string from dataset (decoded at test time)
     metadata: str            # raw JSON string from dataset
     error: str = ""
 
 
 class PipelineRunner:
     def __init__(self, models: List[BaseLLM], dataset, delay: float = 0.5):
-        """
-        Args:
-            models:  list of instantiated LLM wrappers
-            dataset: HuggingFace dataset object from load_livecode_bench()
-            delay:   seconds to wait between API calls (basic rate limiting)
-        """
         self.models = models
         self.dataset = dataset
         self.delay = delay
         Path(RESULTS_DIR).mkdir(exist_ok=True)
 
     def run(self):
-        """Run all samples through all models. Saves one JSON file per model."""
         for model in self.models:
             print(f"\n{'='*50}")
             print(f"Running model: {model.model_name}")
@@ -48,6 +41,7 @@ class PipelineRunner:
 
             for i, sample in enumerate(self.dataset):
                 prompt = build_prompt(sample)
+                print(prompt)
                 print(f"  [{i+1}/{len(self.dataset)}] {sample['question_id']} ({sample['difficulty']})", end=" ... ")
 
                 try:

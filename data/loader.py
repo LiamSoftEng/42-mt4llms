@@ -42,8 +42,11 @@ def load_livecode_bench(n_samples: int = None, after: str = None):
 def build_prompt(sample: dict) -> str:
     """
     Convert a LiveCodeBench sample into a plain-text prompt for an LLM.
-    Includes the problem statement, any starter code, and output formatting instructions.
+    Includes the problem statement, public test cases, starter code,
+    and output formatting instructions.
     """
+    import json
+
     parts = ["Solve the following coding problem. Return ONLY the final code, no explanation.\n"]
 
     parts.append(f"Problem: {sample['question_title']}\n")

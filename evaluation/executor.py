@@ -15,17 +15,10 @@ def extract_code(response: str) -> str | None:
 
 
 def get_all_tests(entry: dict) -> list[dict]:
-    """Parse public test cases from a results entry."""
-    raw = entry.get("public_test_cases", "[]")
-    if isinstance(raw, list):
-        return raw
-    try:
-        parsed = json.loads(raw)
-        if isinstance(parsed, str):
-            parsed = json.loads(parsed)
-        return parsed if isinstance(parsed, list) else []
-    except (json.JSONDecodeError, TypeError):
-        return []
+    """Decode private test cases from the raw base64 string at test time."""
+    from data.decoder import decode_private_test_cases
+    raw = entry.get("private_test_cases", "")
+    return decode_private_test_cases(raw)
 
 
 def get_func_name(entry: dict) -> str | None:

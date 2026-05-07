@@ -69,6 +69,8 @@ def run_tests(results_path: str, n: int = None, debug: bool = False):
 
             if passed:
                 print(f"  Test {i+1} [{testtype}]: PASS")
+                print(f"    Expected: {test.get('output', '')[:80].strip()}")
+                print(f"    Got:      {actual[:80].strip()}")
             else:
                 problem_passed = False
                 print(f"  Test {i+1} [{testtype}]: FAIL")
