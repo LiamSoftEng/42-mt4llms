@@ -1,10 +1,12 @@
 """
-Run all test cases (public, stdin + functional) against model responses.
+Run all test cases against model responses.
+If the results file contains followup responses (from --mr), tests both
+and computes MR verdict.
 
 Usage:
-    python run_tests.py --results results/google_gemma-2-2b-it.json
-    python run_tests.py --results results/google_gemma-2-2b-it.json --n 5
-    python run_tests.py --results results/google_gemma-2-2b-it.json --n 1 --debug
+    python runtests.py --results results/google_gemma-2-2b-it.json
+    python runtests.py --results results/google_gemma-2-2b-it.json --n 5
+    python runtests.py --results results/google_gemma-2-2b-it.json --n 1 --debug
 """
 
 import json
@@ -14,6 +16,37 @@ from pathlib import Path
 from evaluation.executor import extract_code, get_all_tests, get_func_name, run_test
 
 
+def test_response(response, entry, func_name, debug, label="source"):
+    code = extract_code(response)
+    if not code:
+        print(f"  [{label}] SKIP — no code block found")
+        if debug:
+            print(f"    Response: {response[:200]}")
+        return None, 0
+
+    tests = get_all_tests(entry)
+    if not tests:
+        print(f"  [{label}] SKIP — no test cases")
+        return None, 0
+
+    all_passed = True
+    for i, test in enumerate(tests):
+        testtype = test.get("testtype", "stdin")
+        passed, actual, error = run_test(code, test, func_name, debug=debug)
+        if passed:
+            print(f"  [{label}] Test {i+1} [{testtype}]: PASS")
+        else:
+            all_passed = False
+            print(f"  [{label}] Test {i+1} [{testtype}]: FAIL")
+            if error:
+                print(f"    Error:    {error[:200]}")
+            else:
+                print(f"    Expected: {test.get('output', '')[:80].strip()}")
+                print(f"    Got:      {actual[:80].strip()}")
+
+    return all_passed, len(tests)
+
+
 def run_tests(results_path: str, n: int = None, debug: bool = False):
     with open(results_path, encoding="utf-8") as f:
         results = json.load(f)
@@ -21,76 +54,61 @@ def run_tests(results_path: str, n: int = None, debug: bool = False):
     if n:
         results = results[:n]
 
-    total_problems = 0
-    passed_problems = 0
-    failed_problems = 0
-    skipped_problems = 0
+    total = passed = failed = skipped = 0
+    mr_holds = mr_violated = 0
+    has_mr = any(r.get("relation") for r in results)
 
     for entry in results:
         qid = entry["question_id"]
-        title = entry["question_title"]
-        difficulty = entry["difficulty"]
-        platform = entry["platform"]
-
         print(f"\n{'='*60}")
-        print(f"  {qid} — {title} ({difficulty} / {platform})")
+        print(f"  {qid} — {entry['question_title']} ({entry['difficulty']} / {entry['platform']})")
         print(f"{'='*60}")
 
-        total_problems += 1
+        total += 1
 
         if entry.get("error"):
             print(f"  [SKIP] LLM error: {entry['error']}")
-            skipped_problems += 1
-            continue
-
-        code = extract_code(entry["response"])
-        if not code:
-            print("  [SKIP] No Python code block found in response")
-            if debug:
-                print(f"  Response was: {entry['response'][:300]}")
-            skipped_problems += 1
-            continue
-
-        if debug:
-            print(f"\n  Extracted code:\n{code}\n")
-
-        tests = get_all_tests(entry)
-        if not tests:
-            print("  [SKIP] No test cases available")
-            skipped_problems += 1
+            skipped += 1
             continue
 
         func_name = get_func_name(entry)
 
-        problem_passed = True
-        for i, test in enumerate(tests):
-            testtype = test.get("testtype", "stdin")
-            passed, actual, error = run_test(code, test, func_name, debug=debug)
+        # Test source response
+        source_passed, n_tests = test_response(entry["response"], entry, func_name, debug, label="source")
 
-            if passed:
-                print(f"  Test {i+1} [{testtype}]: PASS")
-                print(f"    Expected: {test.get('output', '')[:80].strip()}")
-                print(f"    Got:      {actual[:80].strip()}")
-            else:
-                problem_passed = False
-                print(f"  Test {i+1} [{testtype}]: FAIL")
-                if error:
-                    print(f"    Error:    {error[:200]}")
-                else:
-                    print(f"    Expected: {test.get('output', '')[:80].strip()}")
-                    print(f"    Got:      {actual[:80].strip()}")
+        if source_passed is None:
+            skipped += 1
+            continue
 
-        if problem_passed:
-            passed_problems += 1
+        if source_passed:
+            passed += 1
         else:
-            failed_problems += 1
+            failed += 1
 
+        # Test followup response if MR was applied
+        if entry.get("relation") and entry.get("followup_response"):
+            followup_passed, _ = test_response(entry["followup_response"], entry, func_name, debug, label="followup")
+
+            if followup_passed is not None:
+                holds = source_passed == followup_passed
+                verdict = "HOLDS" if holds else "VIOLATED"
+                print(f"  MR [{entry['relation']}]: {verdict}")
+                if holds:
+                    mr_holds += 1
+                else:
+                    mr_violated += 1
+
+    # Summary
     print(f"\n{'='*60}")
     print(f"  Results: {Path(results_path).name}")
     print(f"  Model:   {results[0]['model_name'] if results else 'unknown'}")
-    print(f"  PASSED:  {passed_problems}/{total_problems}")
-    print(f"  FAILED:  {failed_problems}/{total_problems}")
-    print(f"  SKIPPED: {skipped_problems}/{total_problems}")
+    print(f"  PASSED:  {passed}/{total}")
+    print(f"  FAILED:  {failed}/{total}")
+    print(f"  SKIPPED: {skipped}/{total}")
+    if has_mr:
+        mr_total = mr_holds + mr_violated
+        print(f"  MR [{results[0].get('relation')}] HOLDS:    {mr_holds}/{mr_total}")
+        print(f"  MR [{results[0].get('relation')}] VIOLATED: {mr_violated}/{mr_total}")
     print(f"{'='*60}")
 
 

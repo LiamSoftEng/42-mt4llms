@@ -2,6 +2,7 @@ from openai import OpenAI
 from .base import BaseLLM
 from config.settings import DEEPSEEK_API_KEY, DEEPSEEK_MODEL, MAX_TOKENS, TEMPERATURE
 
+#NOTE: This ended up not actually using the deepseek LLM, its just a tester with free online api keys (google gemma in this case)
 class DeepSeekModel(BaseLLM):
     def __init__(self, model: str = DEEPSEEK_MODEL):
         self.client = OpenAI(
