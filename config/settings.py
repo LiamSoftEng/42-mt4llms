@@ -12,11 +12,11 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 # Model names (TODO: change please, based on knowledge cutoffs + call costs)
 CLAUDE_MODEL = "claude-sonnet-4-6"
 OPENAI_MODEL = "gpt-4o"
-GEMINI_MODEL = "gemini-2.0-flash"
+GEMINI_MODEL = "gemini-2.5-flash"
 DEEPSEEK_MODEL = "google/gemma-2-2b-it"
 
 # Generation params (TODO: adjust as needed)
-MAX_TOKENS = 1024
+MAX_TOKENS = 2048
 TEMPERATURE = 0.2  # Deterministic outputs for reproducibility
 
 # Dataset

@@ -41,7 +41,7 @@ class PipelineRunner:
 
             for i, sample in enumerate(self.dataset):
                 prompt = build_prompt(sample)
-                print(prompt)
+                #print(prompt)
                 print(f"  [{i+1}/{len(self.dataset)}] {sample['question_id']} ({sample['difficulty']})", end=" ... ")
 
                 try:

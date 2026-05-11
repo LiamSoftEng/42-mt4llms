@@ -45,9 +45,8 @@ def build_prompt(sample: dict) -> str:
     Includes the problem statement, public test cases, starter code,
     and output formatting instructions.
     """
-    import json
 
-    parts = ["Solve the following coding problem. Return ONLY the final code, no explanation.\n"]
+    parts = ["Solve the following coding problem. Return ONLY the final code, no explanation, no code comments\n"]
 
     parts.append(f"Problem: {sample['question_title']}\n")
     parts.append(sample["question_content"])

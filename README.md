@@ -76,8 +76,8 @@ python main.py
 
 **Test the responses**
 ```powershell
-python run_tests.py --results results\google_gemma-2-2b-it.json
-python run_tests.py --results results\google_gemma-2-2b-it.json --n 5
+python runtests.py --results results\google_gemma-2-2b-it.json
+python runtests.py --results results\google_gemma-2-2b-it.json --n 5
 ```
 replace the results\<yourresults.json>
 ---
