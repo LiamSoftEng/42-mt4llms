@@ -22,4 +22,13 @@ class GrokModel(BaseLLM):
             max_tokens=MAX_TOKENS,
             temperature=TEMPERATURE,
         )
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            self._set_last_usage({
+                "prompt_tokens": getattr(usage, "prompt_tokens", None),
+                "completion_tokens": getattr(usage, "completion_tokens", None),
+                "total_tokens": getattr(usage, "total_tokens", None),
+            })
+        else:
+            self._set_last_usage(None)
         return response.choices[0].message.content

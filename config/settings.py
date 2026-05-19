@@ -15,7 +15,19 @@ CLAUDE_MODEL = "claude-sonnet-4-6"
 OPENAI_MODEL = "gpt-4o"
 GEMINI_MODEL = "gemini-2.5-flash"
 DEEPSEEK_MODEL = "minimaxai/minimax-m2.7"
-GROK_MODEL = "openai/gpt-oss-20b"
+
+# Groq model options (uncomment one)
+# GROK_MODEL = "openai/gpt-oss-20b"
+GROK_MODEL = "openai/gpt-oss-120b"
+# GROK_MODEL = "llama-3.3-70b-versatile"
+# GROK_MODEL = "llama-3.1-8b-instant"
+# GROK_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+# GROK_MODEL = "groq/compound"
+# GROK_MODEL = "groq/compound-mini"
+# GROK_MODEL = "allam-2-7b"
+# GROK_MODEL = "meta-llama/llama-prompt-guard-2-22m"
+# GROK_MODEL = "meta-llama/llama-prompt-guard-2-86m"
+# GROK_MODEL = "openai/gpt-oss-safeguard-20b"
 
 # Generation params (TODO: adjust as needed)
 MAX_TOKENS = 4096
