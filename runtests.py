@@ -7,10 +7,14 @@ Usage:
     python runtests.py --results results/google_gemma-2-2b-it.json
     python runtests.py --results results/google_gemma-2-2b-it.json --n 5
     python runtests.py --results results/google_gemma-2-2b-it.json --n 1 --debug
+    python runtests.py --results results/google_gemma-2-2b-it.json --stdout
+    python runtests.py --results results/google_gemma-2-2b-it.json --out results/google_gemma-2-2b-it.tests.log
 """
 
 import json
 import argparse
+import sys
+from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 
 from evaluation.executor import extract_code, get_all_tests, get_func_name, run_test
@@ -112,11 +116,32 @@ def run_tests(results_path: str, n: int = None, debug: bool = False):
     print(f"{'='*60}")
 
 
+class _Tee:
+    def __init__(self, *streams):
+        self._streams = streams
+
+    def write(self, data):
+        for stream in self._streams:
+            stream.write(data)
+
+    def flush(self):
+        for stream in self._streams:
+            stream.flush()
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run test cases against model responses")
     parser.add_argument("--results", required=True, help="Path to results JSON file")
     parser.add_argument("--n", type=int, default=None, help="Limit to first N problems")
     parser.add_argument("--debug", action="store_true", help="Print extracted code and generated scripts")
+    parser.add_argument("--out", type=str, default=None, help="Path to write test output log")
+    parser.add_argument("--stdout", action="store_true", help="Also print output to the terminal")
     args = parser.parse_args()
 
-    run_tests(args.results, args.n, debug=args.debug)
+    out_path = Path(args.out) if args.out else Path(args.results).with_suffix(".tests.log")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        stream = _Tee(sys.stdout, f) if args.stdout else f
+        with redirect_stdout(stream), redirect_stderr(stream):
+            run_tests(args.results, args.n, debug=args.debug)
