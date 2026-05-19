@@ -18,6 +18,7 @@ from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 
 from evaluation.executor import extract_code, get_all_tests, get_func_name, run_test
+from evaluation.metrics import compute_metrics
 
 
 def test_response(response, entry, func_name, debug, label="source"):
@@ -26,12 +27,12 @@ def test_response(response, entry, func_name, debug, label="source"):
         print(f"  [{label}] SKIP — no code block found")
         if debug:
             print(f"    Response: {response[:200]}")
-        return None, 0
+        return None, 0, None
 
     tests = get_all_tests(entry)
     if not tests:
         print(f"  [{label}] SKIP — no test cases")
-        return None, 0
+        return None, 0, None
 
     all_passed = True
     for i, test in enumerate(tests):
@@ -48,7 +49,7 @@ def test_response(response, entry, func_name, debug, label="source"):
                 print(f"    Expected: {test.get('output', '')[:80].strip()}")
                 print(f"    Got:      {actual[:80].strip()}")
 
-    return all_passed, len(tests)
+    return all_passed, len(tests), code
 
 
 def run_tests(results_path: str, n: int = None, debug: bool = False):
@@ -61,6 +62,7 @@ def run_tests(results_path: str, n: int = None, debug: bool = False):
     total = passed = failed = skipped = 0
     mr_holds = mr_violated = 0
     has_mr = any(r.get("relation") for r in results)
+    metric_rows = []
 
     for entry in results:
         qid = entry["question_id"]
@@ -78,7 +80,7 @@ def run_tests(results_path: str, n: int = None, debug: bool = False):
         func_name = get_func_name(entry)
 
         # Test source response
-        source_passed, n_tests = test_response(entry["response"], entry, func_name, debug, label="source")
+        source_passed, n_tests, source_code = test_response(entry["response"], entry, func_name, debug, label="source")
 
         if source_passed is None:
             skipped += 1
@@ -89,9 +91,21 @@ def run_tests(results_path: str, n: int = None, debug: bool = False):
         else:
             failed += 1
 
+        source_metrics = compute_metrics(source_code)
+        row = {
+            "id": qid,
+            "source_ncloc": source_metrics["ncloc"],
+            "source_cc": source_metrics["cyclomatic_complexity"],
+            "followup_ncloc": None,
+            "followup_cc": None,
+            "mr_holds": None,
+        }
+
         # Test followup response if MR was applied
         if entry.get("relation") and entry.get("followup_response"):
-            followup_passed, _ = test_response(entry["followup_response"], entry, func_name, debug, label="followup")
+            followup_passed, _, followup_code = test_response(
+                entry["followup_response"], entry, func_name, debug, label="followup"
+            )
 
             if followup_passed is not None:
                 holds = source_passed == followup_passed
@@ -101,6 +115,13 @@ def run_tests(results_path: str, n: int = None, debug: bool = False):
                     mr_holds += 1
                 else:
                     mr_violated += 1
+                row["mr_holds"] = holds
+
+            followup_metrics = compute_metrics(followup_code)
+            row["followup_ncloc"] = followup_metrics["ncloc"]
+            row["followup_cc"] = followup_metrics["cyclomatic_complexity"]
+
+        metric_rows.append(row)
 
     # Summary
     print(f"\n{'='*60}")
@@ -113,6 +134,42 @@ def run_tests(results_path: str, n: int = None, debug: bool = False):
         mr_total = mr_holds + mr_violated
         print(f"  MR [{results[0].get('relation')}] HOLDS:    {mr_holds}/{mr_total}")
         print(f"  MR [{results[0].get('relation')}] VIOLATED: {mr_violated}/{mr_total}")
+
+    if metric_rows:
+        print()
+        if has_mr:
+            print(
+                f"  {'ID':<15} {'Src NCLOC':>10} {'Src CC':>8} {'Flw NCLOC':>10} "
+                f"{'Flw CC':>8} {'dNCLOC':>8} {'dCC':>8} {'MR':>8}"
+            )
+            print(
+                f"  {'-'*15} {'-'*10} {'-'*8} {'-'*10} {'-'*8} {'-'*8} {'-'*8} {'-'*8}"
+            )
+            for r in metric_rows:
+                delta_ncloc = (
+                    r["followup_ncloc"] - r["source_ncloc"]
+                    if r["followup_ncloc"] is not None and r["source_ncloc"] >= 0 and r["followup_ncloc"] >= 0
+                    else "N/A"
+                )
+                delta_cc = (
+                    round(r["followup_cc"] - r["source_cc"], 2)
+                    if r["followup_cc"] is not None and r["source_cc"] >= 0 and r["followup_cc"] >= 0
+                    else "N/A"
+                )
+                mr = ("HOLDS" if r["mr_holds"] else "VIOLATED") if r["mr_holds"] is not None else "N/A"
+                flw_ncloc = r["followup_ncloc"] if r["followup_ncloc"] is not None else "N/A"
+                flw_cc = r["followup_cc"] if r["followup_cc"] is not None else "N/A"
+                delta_ncloc_str = f"{delta_ncloc:+}" if isinstance(delta_ncloc, (int, float)) else delta_ncloc
+                delta_cc_str = f"{delta_cc:+}" if isinstance(delta_cc, (int, float)) else delta_cc
+                print(
+                    f"  {r['id']:<15} {r['source_ncloc']:>10} {r['source_cc']:>8} "
+                    f"{str(flw_ncloc):>10} {str(flw_cc):>8} {delta_ncloc_str:>8} {delta_cc_str:>8} {mr:>8}"
+                )
+        else:
+            print(f"  {'ID':<15} {'NCLOC':>10} {'CC':>8}")
+            print(f"  {'-'*15} {'-'*10} {'-'*8}")
+            for r in metric_rows:
+                print(f"  {r['id']:<15} {r['source_ncloc']:>10} {r['source_cc']:>8}")
     print(f"{'='*60}")
 
 

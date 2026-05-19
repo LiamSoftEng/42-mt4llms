@@ -1,5 +1,5 @@
 # LLM MT Pipeline
-Run LiveCodeBench problems through multiple LLMs and collect their outputs for metamorphic testing.
+Run LiveCodeBench problems through multiple LLMs, capture source and followup outputs, and evaluate with metamorphic relations and test harnesses.
 ---
 ## Setup
 ```powershell
@@ -27,6 +27,7 @@ Then open `.env` and fill in your keys.
 ├── evaluation/
 │   ├── runner.py
 │   ├── executor.py
+│   ├── metrics.py
 │   └── harness/
 │       ├── stdin.py
 │       └── functional.py
@@ -35,13 +36,15 @@ Then open `.env` and fill in your keys.
 │   ├── relations_list.py
 │   └── relations/
 │       ├── __init__.py
-│       ├── mr0.py
-│       └── mr1.py
+│       ├── base_mr.py
+│       └── mrs.py
 ├── explore_dataset.py
 ├── main.py
 ├── runtests.py
 └── results/
-    └── <model>.json
+    ├── <model>.json
+    ├── <model>.tests.log
+    └── dataset_preview.json
 ```
 ---
 ## Usage
@@ -67,23 +70,26 @@ python main.py
 | `--models` | One or more of: `claude` `openai` `gemini` `deepseek` | `--models deepseek claude` |
 | `--n` | Limit number of samples | `--n 10` |
 | `--after` | Only problems on or after this date | `--after 2024-01-01` |
-| `--mr` | Apply a metamorphic relation alongside the normal run | `--mr 1` |
+| `--mr` | Apply a metamorphic relation alongside the normal run | `--mr 4` |
 
 **Run with a metamorphic relation**
 ```powershell
-# Run with MR0 (control — prompt unchanged, use to verify pipeline)
+# Run with MR0 (control - prompt unchanged, use to verify pipeline)
 python main.py --models deepseek --n 5 --mr 0
 
-# Run with MR1 (dead context)
-python main.py --models deepseek --n 5 --mr 1
+# Run with MR4 (persona role prompting)
+python main.py --models deepseek --n 5 --mr 4
 ```
 
 **Test the responses**
 ```powershell
 python runtests.py --results results\google_gemma-2-2b-it.json
 python runtests.py --results results\google_gemma-2-2b-it.json --n 5
+python runtests.py --results results\google_gemma-2-2b-it.json --out results\google_gemma-2-2b-it.tests.log
+python runtests.py --results results\google_gemma-2-2b-it.json --stdout
+python runtests.py --results results\google_gemma-2-2b-it.json --debug
 ```
-replace the results\<yourresults.json>
+Replace `results\<yourresults.json>` with your file.
 
 ---
 ## Output
@@ -95,44 +101,59 @@ Each `main.py` run saves a JSON file to `results\` named after the model:
   "difficulty": "easy",
   "platform": "codeforces",
   "model_name": "google/gemma-2-2b-it",
-  "prompt": "...",
+  "instruction_prefix": "...",
+  "instruction_suffix": "...",
+  "question": "...",
   "response": "...",
   "public_test_cases": "...",
   "private_test_cases": "...",
   "metadata": "...",
   "error": "",
-  "relation": "dead_context",
-  "followup_prompt": "...",
+  "relation": "persona_role_prompting",
+  "followup_instruction_prefix": "...",
+  "followup_instruction_suffix": "...",
+  "followup_question": "...",
   "followup_response": "...",
   "followup_error": ""
 }
 ```
-`relation`, `followup_prompt`, `followup_response`, and `followup_error` are only populated when `--mr` is used.
+Followup fields are only populated when `--mr` is used. If a model call fails, `error` will contain the message and `response` will be empty; the pipeline continues to the next sample.
 
-If a model call fails, `error` will contain the message and `response` will be empty. The pipeline continues to the next sample rather than crashing.
-
-`runtests.py` automatically detects the presence of followup responses and computes MR verdicts:
+`runtests.py` prints per-test verdicts, MR holds/violations, and a metrics summary table using NCLOC and cyclomatic complexity (radon):
 ```
   [source]   Test 1 [functional]: PASS
   [followup] Test 1 [functional]: PASS
   MR [dead_context]: HOLDS
+
+  ID               Src NCLOC   Src CC  Flw NCLOC   Flw CC   dNCLOC      dCC       MR
+  1873_A                 14     1.00         13     1.00       -1     +0.00    HOLDS
 ```
 
 ---
 ## Metamorphic Relations
-Relations are defined in `metamorphic/relations/` and registered in `metamorphic/registry.py`.
+Relations are defined in `metamorphic/relations/mrs.py` and registered in `metamorphic/relations_list.py`.
 
 Each MR class implements:
-- `name` — identifier string used in results
-- `transform(prompt)` — takes original prompt, returns transformed followup prompt
-- `verify(source_passed, followup_passed)` — returns whether the MR holds
+- `name` - identifier string used in results
+- `transform(...)` - returns transformed question or instruction
+- `verify(source_passed, followup_passed)` - returns whether the MR holds
 
-To add a new MR, create `metamorphic/relations/mrN.py` and add an entry to `registry.py`.
+To add a new MR, implement it in `metamorphic/relations/mrs.py` and register it in `metamorphic/relations_list.py`.
 
-| MR | Name | Description |
-|---|---|---|
-| 0 | `do_nothing` | Control — returns prompt unchanged. Should always hold. |
-| 1 | `dead_context` | Insert irrelevant sentence into prompt. Output should be identical. |
+| ID | Name | Target | Description |
+|---|---|---|---|
+| 0 | `do_nothing` | question | Control relation that returns the original prompt unchanged. |
+| 1 | `dead_context` | question | Insert an irrelevant sentence into the prompt. |
+| 2 | `constraint_redundant_spec` | instruction | Inject a redundant language constraint already implied by syntax. |
+| 3 | `format_structural_equivalence` | question | Convert the prompt into a structured bulleted list. |
+| 4 | `persona_role_prompting` | instruction | Prepend a persona to the prompt. |
+| 5 | `context_extraneous_narrative` | question | Inject an irrelevant backstory without changing requirements. |
+| 6 | `polarity_negative_formulation` | instruction | Rewrite a return constraint into an equivalent negative form. |
+| 7 | `identifier_explicit_naming` | instruction | Add explicit internal naming constraints for variables. |
+| 8 | `output_formatting_constraint` | instruction | Add constraints about outputting raw code only. |
+| 9 | `hint_trivial_algorithm` | instruction | Add a trivial algorithmic suggestion. |
+| 10 | `order_requirement_permutation` | question | Permute the order of independent constraints. |
+| 11 | `verbosity_lexical_expansion` | question | Add brief definitions for common programming terms. |
 
 ---
 ## Notes

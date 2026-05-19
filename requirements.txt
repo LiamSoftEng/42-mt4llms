@@ -4,4 +4,5 @@ google-genai
 datasets
 python-dotenv
 pandas
+radon
  
