@@ -1,11 +1,11 @@
 import json
 import time
 from pathlib import Path
-from dataclasses import dataclass, asdict, field
+from dataclasses import dataclass, asdict
 from typing import List
 
 from llms.base import BaseLLM
-from data.loader import build_prompt, build_code_question, INSTRUCTION_PREFIX, INSTRUCTION_SUFFIX
+from data.loader import build_code_question, build_prompt, INSTRUCTION_PREFIX, INSTRUCTION_SUFFIX
 from config.settings import RESULTS_DIR
 
 
@@ -16,8 +16,9 @@ class LLMResult:
     difficulty: str
     platform: str
     model_name: str
+    instruction_prefix: str
+    instruction_suffix: str
     question: str
-    prompt: str
     response: str
     public_test_cases: str
     private_test_cases: str
@@ -25,8 +26,9 @@ class LLMResult:
     error: str = ""
     # MT fields — only populated when --mr is used
     relation: str = ""
+    followup_instruction_prefix: str = ""
+    followup_instruction_suffix: str = ""
     followup_question: str = ""
-    followup_prompt: str = ""
     followup_response: str = ""
     followup_error: str = ""
 
@@ -63,31 +65,33 @@ class PipelineRunner:
 
                 # Followup response if MR is set
                 followup_question = ""
-                followup_prompt = ""
+                followup_instruction_prefix = ""
+                followup_instruction_suffix = ""
                 followup_response = ""
                 followup_error = ""
 
                 if self.relation:
-                    #Make it default on target question incase we dont specify
                     target = getattr(self.relation, "target", "question")
 
                     if target == "question":
                         followup_question = self.relation.transform(question)
+                        followup_instruction_prefix = INSTRUCTION_PREFIX
+                        followup_instruction_suffix = INSTRUCTION_SUFFIX
                         followup_prompt = build_prompt(followup_question)
 
                     elif target == "instruction":
                         followup_question = question
-                        transformed_prefix, transformed_suffix = self.relation.transform(
+                        followup_instruction_prefix, followup_instruction_suffix = self.relation.transform(
                             INSTRUCTION_PREFIX, INSTRUCTION_SUFFIX
                         )
-                        followup_prompt = build_prompt(question, transformed_prefix, transformed_suffix)
+                        followup_prompt = build_prompt(question, followup_instruction_prefix, followup_instruction_suffix)
 
                     try:
                         followup_response = model.generate(followup_prompt)
                     except Exception as e:
                         followup_error = str(e)
 
-                    print(f"ok (+ {self.relation.name})")
+                    print(f"ok (+ {self.relation.name} [{target}])")
                 else:
                     print("ok")
 
@@ -97,16 +101,18 @@ class PipelineRunner:
                     difficulty=sample["difficulty"],
                     platform=sample["platform"],
                     model_name=model.model_name,
+                    instruction_prefix=INSTRUCTION_PREFIX,
+                    instruction_suffix=INSTRUCTION_SUFFIX,
                     question=question,
-                    prompt=prompt,
                     response=response,
                     public_test_cases=json.dumps(sample.get("public_test_cases", [])),
                     private_test_cases=sample.get("private_test_cases", ""),
                     metadata=json.dumps(sample.get("metadata", {})),
                     error=error,
                     relation=self.relation.name if self.relation else "",
+                    followup_instruction_prefix=followup_instruction_prefix,
+                    followup_instruction_suffix=followup_instruction_suffix,
                     followup_question=followup_question,
-                    followup_prompt=followup_prompt,
                     followup_response=followup_response,
                     followup_error=followup_error,
                 )))

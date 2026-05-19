@@ -1,4 +1,4 @@
-MR_REGISTRY = {
+RELATIONS = {
     0:  {"module": "metamorphic.relations.mrs", "class": "MR0",  "name": "do_nothing",                    "target": "question",    "description": "Control relation that returns the original prompt and output unchanged."},
     1:  {"module": "metamorphic.relations.mrs", "class": "MR1",  "name": "dead_context",                  "target": "question",    "description": "Insert irrelevant sentence into prompt. Output should be identical."},
     2:  {"module": "metamorphic.relations.mrs", "class": "MR2",  "name": "constraint_redundant_spec",     "target": "instruction", "description": "Inject a redundant language constraint already implied by syntax."},
