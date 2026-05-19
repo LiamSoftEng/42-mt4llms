@@ -16,7 +16,7 @@ GEMINI_MODEL = "gemini-2.5-flash"
 DEEPSEEK_MODEL = "google/gemma-2-2b-it"
 
 # Generation params (TODO: adjust as needed)
-MAX_TOKENS = 2048
+MAX_TOKENS = 4096
 TEMPERATURE = 0.2  # Deterministic outputs for reproducibility
 
 # Dataset
