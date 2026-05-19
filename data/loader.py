@@ -1,7 +1,8 @@
 from datetime import datetime
 from datasets import load_dataset
 from config.settings import LCB_DATASET, LCB_VERSION, N_SAMPLES
-
+INSTRUCTION_PREFIX = "Solve the following coding problem. Return ONLY the final code, no explanation, no code comments\n"
+INSTRUCTION_SUFFIX = "\nReturn your solution as a Python code block (```python ... ```)."
 
 def load_livecode_bench(n_samples: int = None, after: str = None):
     """
@@ -38,22 +39,14 @@ def load_livecode_bench(n_samples: int = None, after: str = None):
     print(f"Loaded {len(dataset)} samples from {LCB_DATASET} ({LCB_VERSION})")
     return dataset
 
-
-def build_prompt(sample: dict) -> str:
-    """
-    Convert a LiveCodeBench sample into a plain-text prompt for an LLM.
-    Includes the problem statement, public test cases, starter code,
-    and output formatting instructions.
-    """
-
-    parts = ["Solve the following coding problem. Return ONLY the final code, no explanation, no code comments\n"]
-
+def build_code_question(sample: dict) -> str:
+    parts = []
     parts.append(f"Problem: {sample['question_title']}\n")
     parts.append(sample["question_content"])
-
     if sample.get("starter_code", "").strip():
         parts.append(f"\nUse this starter code:\n```python\n{sample['starter_code']}\n```")
-
-    parts.append("\nReturn your solution as a Python code block (```python ... ```).")
-
     return "\n".join(parts)
+
+
+def build_prompt(question: str, prefix: str = INSTRUCTION_PREFIX, suffix: str = INSTRUCTION_SUFFIX) -> str:
+    return prefix + question + suffix

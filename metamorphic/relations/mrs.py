@@ -1,4 +1,5 @@
 import re
+from metamorphic.relations.base_mr import BaseMR
 
 NOISE = "Note: This problem was originally presented in an international programming contest."
 REDUNDANT_SPEC = "Follow the programming language's required syntax rules (e.g., indentation for scope in Python)."
@@ -114,147 +115,133 @@ def _rewrite_return_to_negative(prompt: str) -> str:
     return _insert_after_first_line(prompt, NEGATIVE_CONSTRAINT)
 
 
-class MR1:
+class MR0(BaseMR):
+    target = "question"
+
+    @property
+    def name(self) -> str:
+        return "do_nothing"
+
+    def transform(self, text: str) -> str:
+        return text
+
+
+class MR1(BaseMR):
+    target = "question"
 
     @property
     def name(self) -> str:
         return "dead_context"
 
-    def transform(self, prompt: str) -> str:
-        """Insert an irrelevant sentence after the first line of the prompt."""
-        lines = prompt.split("\n")
-        lines.insert(1, NOISE)
-        return "\n".join(lines)
-
-    def verify(self, source_passed: bool, followup_passed: bool) -> bool:
-        return source_passed == followup_passed
+    def transform(self, text: str) -> str:
+        return _insert_after_first_line(text, NOISE)
 
 
-class MR2:
+class MR2(BaseMR):
+    target = "instruction"
 
     @property
     def name(self) -> str:
         return "constraint_redundant_spec"
 
-    def transform(self, prompt: str) -> str:
-        return _insert_after_first_line(prompt, REDUNDANT_SPEC)
-
-    def verify(self, source_passed: bool, followup_passed: bool) -> bool:
-        return source_passed == followup_passed
+    def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
+        return _insert_after_first_line(prefix, REDUNDANT_SPEC), suffix
 
 
-class MR3:
+class MR3(BaseMR):
+    target = "question"
 
     @property
     def name(self) -> str:
         return "format_structural_equivalence"
 
-    def transform(self, prompt: str) -> str:
-        return _to_bulleted(prompt)
-
-    def verify(self, source_passed: bool, followup_passed: bool) -> bool:
-        return source_passed == followup_passed
+    def transform(self, text: str) -> str:
+        return _to_bulleted(text)
 
 
-class MR4:
+class MR4(BaseMR):
+    target = "instruction"
 
     @property
     def name(self) -> str:
         return "persona_role_prompting"
 
-    def transform(self, prompt: str) -> str:
-        return _prepend_line(prompt, PERSONA)
-
-    def verify(self, source_passed: bool, followup_passed: bool) -> bool:
-        return source_passed == followup_passed
+    def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
+        return _prepend_line(prefix, PERSONA), suffix
 
 
-class MR5:
+class MR5(BaseMR):
+    target = "question"
 
     @property
     def name(self) -> str:
         return "context_extraneous_narrative"
 
-    def transform(self, prompt: str) -> str:
-        return _insert_after_first_line(prompt, BACKSTORY)
-
-    def verify(self, source_passed: bool, followup_passed: bool) -> bool:
-        return source_passed == followup_passed
+    def transform(self, text: str) -> str:
+        return _insert_after_first_line(text, BACKSTORY)
 
 
-class MR6:
+class MR6(BaseMR):
+    target = "instruction"
 
     @property
     def name(self) -> str:
         return "polarity_negative_formulation"
 
-    def transform(self, prompt: str) -> str:
-        return _rewrite_return_to_negative(prompt)
-
-    def verify(self, source_passed: bool, followup_passed: bool) -> bool:
-        return source_passed == followup_passed
+    def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
+        return _rewrite_return_to_negative(prefix), suffix
 
 
-class MR7:
+class MR7(BaseMR):
+    target = "instruction"
 
     @property
     def name(self) -> str:
         return "identifier_explicit_naming"
 
-    def transform(self, prompt: str) -> str:
-        return _insert_after_first_line(prompt, IDENTIFIER_CONSTRAINT)
-
-    def verify(self, source_passed: bool, followup_passed: bool) -> bool:
-        return source_passed == followup_passed
+    def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
+        return _insert_after_first_line(prefix, IDENTIFIER_CONSTRAINT), suffix
 
 
-class MR8:
+class MR8(BaseMR):
+    target = "instruction"
 
     @property
     def name(self) -> str:
         return "output_formatting_constraint"
 
-    def transform(self, prompt: str) -> str:
-        return _insert_after_first_line(prompt, OUTPUT_FORMAT)
-
-    def verify(self, source_passed: bool, followup_passed: bool) -> bool:
-        return source_passed == followup_passed
+    def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
+        return _insert_after_first_line(prefix, OUTPUT_FORMAT), suffix
 
 
-class MR9:
+class MR9(BaseMR):
+    target = "instruction"
 
     @property
     def name(self) -> str:
         return "hint_trivial_algorithm"
 
-    def transform(self, prompt: str) -> str:
-        return _insert_after_first_line(prompt, TRIVIAL_HINT)
-
-    def verify(self, source_passed: bool, followup_passed: bool) -> bool:
-        return source_passed == followup_passed
+    def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
+        return _insert_after_first_line(prefix, TRIVIAL_HINT), suffix
 
 
-class MR10:
+class MR10(BaseMR):
+    target = "question"
 
     @property
     def name(self) -> str:
         return "order_requirement_permutation"
 
-    def transform(self, prompt: str) -> str:
-        return _permute_constraints(prompt)
-
-    def verify(self, source_passed: bool, followup_passed: bool) -> bool:
-        return source_passed == followup_passed
+    def transform(self, text: str) -> str:
+        return _permute_constraints(text)
 
 
-class MR11:
+class MR11(BaseMR):
+    target = "question"
 
     @property
     def name(self) -> str:
         return "verbosity_lexical_expansion"
 
-    def transform(self, prompt: str) -> str:
-        return _append_line(prompt, VERBOSITY_NOTE)
-
-    def verify(self, source_passed: bool, followup_passed: bool) -> bool:
-        return source_passed == followup_passed
+    def transform(self, text: str) -> str:
+        return _append_line(text, VERBOSITY_NOTE)

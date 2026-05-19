@@ -2,10 +2,10 @@ import json
 import time
 from pathlib import Path
 from dataclasses import dataclass, asdict, field
-from typing import List, Optional
+from typing import List
 
 from llms.base import BaseLLM
-from data.loader import build_prompt
+from data.loader import build_prompt, build_code_question, INSTRUCTION_PREFIX, INSTRUCTION_SUFFIX
 from config.settings import RESULTS_DIR
 
 
@@ -16,6 +16,7 @@ class LLMResult:
     difficulty: str
     platform: str
     model_name: str
+    question: str
     prompt: str
     response: str
     public_test_cases: str
@@ -24,6 +25,7 @@ class LLMResult:
     error: str = ""
     # MT fields — only populated when --mr is used
     relation: str = ""
+    followup_question: str = ""
     followup_prompt: str = ""
     followup_response: str = ""
     followup_error: str = ""
@@ -46,7 +48,9 @@ class PipelineRunner:
             results = []
 
             for i, sample in enumerate(self.dataset):
-                prompt = build_prompt(sample)
+                question = build_code_question(sample)
+                prompt = build_prompt(question)
+
                 print(f"  [{i+1}/{len(self.dataset)}] {sample['question_id']} ({sample['difficulty']})", end=" ... ")
 
                 # Source response
@@ -58,15 +62,31 @@ class PipelineRunner:
                     error = str(e)
 
                 # Followup response if MR is set
+                followup_question = ""
                 followup_prompt = ""
                 followup_response = ""
                 followup_error = ""
+
                 if self.relation:
-                    followup_prompt = self.relation.transform(prompt)
+                    #Make it default on target question incase we dont specify
+                    target = getattr(self.relation, "target", "question")
+
+                    if target == "question":
+                        followup_question = self.relation.transform(question)
+                        followup_prompt = build_prompt(followup_question)
+
+                    elif target == "instruction":
+                        followup_question = question
+                        transformed_prefix, transformed_suffix = self.relation.transform(
+                            INSTRUCTION_PREFIX, INSTRUCTION_SUFFIX
+                        )
+                        followup_prompt = build_prompt(question, transformed_prefix, transformed_suffix)
+
                     try:
                         followup_response = model.generate(followup_prompt)
                     except Exception as e:
                         followup_error = str(e)
+
                     print(f"ok (+ {self.relation.name})")
                 else:
                     print("ok")
@@ -77,6 +97,7 @@ class PipelineRunner:
                     difficulty=sample["difficulty"],
                     platform=sample["platform"],
                     model_name=model.model_name,
+                    question=question,
                     prompt=prompt,
                     response=response,
                     public_test_cases=json.dumps(sample.get("public_test_cases", [])),
@@ -84,6 +105,7 @@ class PipelineRunner:
                     metadata=json.dumps(sample.get("metadata", {})),
                     error=error,
                     relation=self.relation.name if self.relation else "",
+                    followup_question=followup_question,
                     followup_prompt=followup_prompt,
                     followup_response=followup_response,
                     followup_error=followup_error,
