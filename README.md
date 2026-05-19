@@ -23,7 +23,8 @@ Then open `.env` and fill in your keys.
 │   ├── claude_model.py
 │   ├── openai_model.py
 │   ├── gemini_model.py
-│   └── deepseek_model.py
+│   ├── deepseek_model.py
+│   └── grok_model.py
 ├── evaluation/
 │   ├── runner.py
 │   ├── executor.py
@@ -67,7 +68,7 @@ python main.py
 ```
 | Flag | Description | Example |
 |---|---|---|
-| `--models` | One or more of: `claude` `openai` `gemini` `deepseek` | `--models deepseek claude` |
+| `--models` | One or more of: `claude` `openai` `gemini` `deepseek` `grok` | `--models deepseek claude` |
 | `--n` | Limit number of samples | `--n 10` |
 | `--after` | Only problems on or after this date | `--after 2024-01-01` |
 | `--mr` | Apply a metamorphic relation alongside the normal run | `--mr 4` |

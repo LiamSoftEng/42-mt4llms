@@ -8,12 +8,14 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+GROK_API_KEY = os.getenv("GROK_API_KEY")
 
 # Model names (TODO: change please, based on knowledge cutoffs + call costs)
 CLAUDE_MODEL = "claude-sonnet-4-6"
 OPENAI_MODEL = "gpt-4o"
 GEMINI_MODEL = "gemini-2.5-flash"
-DEEPSEEK_MODEL = "google/gemma-2-2b-it"
+DEEPSEEK_MODEL = "minimaxai/minimax-m2.7"
+GROK_MODEL = "openai/gpt-oss-20b"
 
 # Generation params (TODO: adjust as needed)
 MAX_TOKENS = 4096

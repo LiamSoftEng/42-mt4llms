@@ -1,7 +1,7 @@
 import argparse
 from data.loader import load_livecode_bench
 from evaluation.runner import PipelineRunner
-from llms import ClaudeModel, OpenAIModel, GeminiModel, DeepSeekModel
+from llms import ClaudeModel, OpenAIModel, GeminiModel, DeepSeekModel, GrokModel
 import importlib
 from metamorphic.relations_list import RELATIONS
 
@@ -10,6 +10,7 @@ MODEL_CHOICES = {
     "openai": OpenAIModel,
     "gemini": GeminiModel,
     "deepseek": DeepSeekModel,
+    "grok": GrokModel,
 }
 
 def get_relation(mr_id: int):
