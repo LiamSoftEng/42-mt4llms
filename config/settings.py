@@ -12,7 +12,7 @@ GROK_API_KEY = os.getenv("GROK_API_KEY")
 
 # Model names (TODO: change please, based on knowledge cutoffs + call costs)
 CLAUDE_MODEL = "claude-sonnet-4-6"
-OPENAI_MODEL = "gpt-4o"
+OPENAI_MODEL = "gpt-5-nano"
 GEMINI_MODEL = "gemini-2.5-flash"
 DEEPSEEK_MODEL = "minimaxai/minimax-m2.7"
 
@@ -30,7 +30,7 @@ GROK_MODEL = "openai/gpt-oss-120b"
 # GROK_MODEL = "openai/gpt-oss-safeguard-20b"
 
 # Generation params (TODO: adjust as needed)
-MAX_TOKENS = 4096
+MAX_TOKENS =4096
 TEMPERATURE = 0.2  # Deterministic outputs for reproducibility
 
 # Dataset

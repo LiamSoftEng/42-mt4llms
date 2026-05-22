@@ -1,9 +1,14 @@
 import argparse
+import subprocess
+import sys
+from pathlib import Path
+
 from data.loader import load_livecode_bench
 from evaluation.runner import PipelineRunner
 from llms import ClaudeModel, OpenAIModel, GeminiModel, DeepSeekModel, GrokModel
 import importlib
 from metamorphic.relations_list import RELATIONS
+from config.settings import RESULTS_DIR
 
 MODEL_CHOICES = {
     "claude": ClaudeModel,
@@ -21,6 +26,24 @@ def get_relation(mr_id: int):
     module = importlib.import_module(entry["module"])
     cls = getattr(module, entry["class"])
     return cls()
+
+
+def _safe_name(model_name: str) -> str:
+    return model_name.replace("/", "_").replace(".", "-")
+
+
+def _run_tests(model_name: str) -> int:
+    results_path = Path(RESULTS_DIR) / f"{_safe_name(model_name)}.json"
+    if not results_path.exists():
+        print(f"Results file not found for tests: {results_path}")
+        return 1
+    result = subprocess.run(
+        [sys.executable, "runtests.py", "--results", str(results_path)],
+        check=False,
+    )
+    if result.returncode != 0:
+        print(f"Tests failed for {model_name} (exit {result.returncode})")
+    return result.returncode
 
 
 def parse_args():
@@ -50,9 +73,14 @@ def parse_args():
         default=None,
         help="Apply a metamorphic relation alongside the normal run. e.g. --mr 1",
     )
+    parser.add_argument(
+        "--run-tests",
+        action="store_true",
+        help="Run runtests.py on each model's results after generation",
+    )
     return parser.parse_args()
 
-def main():
+def main() -> int:
     args = parse_args()
 
     dataset = load_livecode_bench(n_samples=args.n, after=args.after)
@@ -64,5 +92,12 @@ def main():
     runner = PipelineRunner(models=models, dataset=dataset, relation=relation)
     runner.run()
 
+    if args.run_tests:
+        for model in models:
+            exit_code = _run_tests(model.model_name)
+            if exit_code != 0:
+                return exit_code
+    return 0
+
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
