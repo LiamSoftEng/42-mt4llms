@@ -6,6 +6,8 @@ load_dotenv()
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 os.environ.setdefault("HUGGINGFACE_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
 
 # API Keys
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
@@ -19,8 +21,8 @@ CLAUDE_MODEL = "claude-sonnet-4-6"
 OPENAI_MODEL = "gpt-5-nano"
 GEMINI_MODEL = "gemini-2.5-flash"
 DEEPSEEK_MODEL = "minimaxai/minimax-m2.7"
-CODE_EMBEDDING_MODEL = "microsoft/codebert-base"
-CODE_TOKENIZER_MODEL = "microsoft/codebert-base"
+CODE_EMBEDDING_MODEL = "Salesforce/codet5p-220m"
+CODE_TOKENIZER_MODEL = "Salesforce/codet5-base"
 
 # Groq model options (uncomment one)
 # GROK_MODEL = "openai/gpt-oss-20b"

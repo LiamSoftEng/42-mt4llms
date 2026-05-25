@@ -4,6 +4,7 @@ Code metrics computed on extracted code blocks using radon.
 
 from functools import lru_cache
 import os
+import warnings
 
 from radon.raw import analyze
 from radon.complexity import cc_visit
@@ -29,41 +30,35 @@ def _get_code_embedder():
 
 @lru_cache(maxsize=1)
 def _get_transformer_encoder():
-    from transformers import AutoConfig, AutoModel, AutoTokenizer, T5EncoderModel, T5Tokenizer, T5TokenizerFast
-    import torch
     from config.settings import CODE_EMBEDDING_MODEL, CODE_TOKENIZER_MODEL
 
     os.environ.setdefault("DISABLE_SAFETENSORS_CONVERSION", "1")
     os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
     os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
     os.environ.setdefault("HUGGINGFACE_HUB_DISABLE_PROGRESS_BARS", "1")
-    try:
-        from transformers.utils import logging as hf_logging
+    os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+    os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
 
-        hf_logging.disable_progress_bar()
-    except Exception:
-        pass
+    warnings.filterwarnings(
+        "ignore",
+        message="`resume_download` is deprecated*",
+        category=FutureWarning,
+        module="huggingface_hub",
+    )
+
+    from transformers import AutoConfig, AutoModel, AutoTokenizer, T5EncoderModel
+    import torch
+    from transformers.utils import logging as hf_logging
+
+    hf_logging.set_verbosity_error()
+    hf_logging.disable_progress_bar()
     tokenizer_model = CODE_TOKENIZER_MODEL or CODE_EMBEDDING_MODEL
     config = AutoConfig.from_pretrained(CODE_EMBEDDING_MODEL)
-    if config.model_type in {"t5", "mt5"}:
-        tokenizer = None
-        try:
-            tokenizer = T5TokenizerFast.from_pretrained(tokenizer_model)
-        except Exception as exc:
-            _codesim_debug(f"fast tokenizer load failed for {tokenizer_model}: {exc}")
-        if tokenizer is None:
-            try:
-                tokenizer = T5Tokenizer.from_pretrained(tokenizer_model)
-            except Exception as exc:
-                _codesim_debug(f"slow tokenizer load failed for {tokenizer_model}: {exc}")
-        if tokenizer is None:
-            raise RuntimeError(f"Unable to load tokenizer for {tokenizer_model}")
-    else:
-        try:
-            tokenizer = AutoTokenizer.from_pretrained(tokenizer_model, use_fast=True)
-        except Exception as exc:
-            _codesim_debug(f"fast tokenizer load failed for {tokenizer_model}: {exc}")
-            tokenizer = AutoTokenizer.from_pretrained(tokenizer_model, use_fast=False)
+    try:
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_model, use_fast=True)
+    except Exception as exc:
+        _codesim_debug(f"fast tokenizer load failed for {tokenizer_model}: {exc}")
+        tokenizer = AutoTokenizer.from_pretrained(tokenizer_model, use_fast=False)
 
     if config.model_type in {"t5", "mt5"}:
         model = T5EncoderModel.from_pretrained(CODE_EMBEDDING_MODEL, use_safetensors=False)

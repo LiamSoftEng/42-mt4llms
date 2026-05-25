@@ -8,3 +8,5 @@ radon
 sentence-transformers
 torch
 sentencepiece
+transformers==4.38.2
+tokenizers==0.15.2
