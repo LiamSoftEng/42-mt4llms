@@ -18,7 +18,7 @@ from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 
 from evaluation.executor import extract_code, get_all_tests, get_func_name, run_test
-from evaluation.metrics import compute_metrics
+from evaluation.metrics import compute_metrics, compute_code_similarity
 
 
 def test_response(response, entry, func_name, debug, label="source"):
@@ -98,6 +98,7 @@ def run_tests(results_path: str, n: int = None, debug: bool = False):
             "source_cc": source_metrics["cyclomatic_complexity"],
             "followup_ncloc": None,
             "followup_cc": None,
+            "code_sim": None,
             "mr_holds": None,
         }
 
@@ -120,6 +121,8 @@ def run_tests(results_path: str, n: int = None, debug: bool = False):
             followup_metrics = compute_metrics(followup_code)
             row["followup_ncloc"] = followup_metrics["ncloc"]
             row["followup_cc"] = followup_metrics["cyclomatic_complexity"]
+            if source_code and followup_code:
+                row["code_sim"] = compute_code_similarity(source_code, followup_code)
 
         metric_rows.append(row)
 
@@ -140,10 +143,10 @@ def run_tests(results_path: str, n: int = None, debug: bool = False):
         if has_mr:
             print(
                 f"  {'ID':<15} {'Src NCLOC':>10} {'Src CC':>8} {'Flw NCLOC':>10} "
-                f"{'Flw CC':>8} {'dNCLOC':>8} {'dCC':>8} {'MR':>8}"
+                f"{'Flw CC':>8} {'CodeSim':>8} {'dNCLOC':>8} {'dCC':>8} {'MR':>8}"
             )
             print(
-                f"  {'-'*15} {'-'*10} {'-'*8} {'-'*10} {'-'*8} {'-'*8} {'-'*8} {'-'*8}"
+                f"  {'-'*15} {'-'*10} {'-'*8} {'-'*10} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*8}"
             )
             for r in metric_rows:
                 delta_ncloc = (
@@ -159,11 +162,13 @@ def run_tests(results_path: str, n: int = None, debug: bool = False):
                 mr = ("HOLDS" if r["mr_holds"] else "VIOLATED") if r["mr_holds"] is not None else "N/A"
                 flw_ncloc = r["followup_ncloc"] if r["followup_ncloc"] is not None else "N/A"
                 flw_cc = r["followup_cc"] if r["followup_cc"] is not None else "N/A"
+                code_sim = r["code_sim"]
+                code_sim_str = f"{code_sim:.4f}" if isinstance(code_sim, (int, float)) else "N/A"
                 delta_ncloc_str = f"{delta_ncloc:+}" if isinstance(delta_ncloc, (int, float)) else delta_ncloc
                 delta_cc_str = f"{delta_cc:+}" if isinstance(delta_cc, (int, float)) else delta_cc
                 print(
                     f"  {r['id']:<15} {r['source_ncloc']:>10} {r['source_cc']:>8} "
-                    f"{str(flw_ncloc):>10} {str(flw_cc):>8} {delta_ncloc_str:>8} {delta_cc_str:>8} {mr:>8}"
+                    f"{str(flw_ncloc):>10} {str(flw_cc):>8} {code_sim_str:>8} {delta_ncloc_str:>8} {delta_cc_str:>8} {mr:>8}"
                 )
         else:
             print(f"  {'ID':<15} {'NCLOC':>10} {'CC':>8}")
