@@ -7,6 +7,8 @@ from typing import List
 from llms.base import BaseLLM
 from data.loader import build_code_question, build_prompt, INSTRUCTION_PREFIX, INSTRUCTION_SUFFIX
 from config.settings import RESULTS_DIR
+from typing import Any
+
 
 
 def _safe_name(model_name: str) -> str:
@@ -41,10 +43,12 @@ def _load_base_results(model_name: str) -> dict[str, dict]:
         print(f"  Unexpected base results format (expected list): {base_path}")
         return {}
     return {
-        entry.get("question_id"): entry
-        for entry in data
-        if isinstance(entry, dict) and entry.get("question_id")
-    }
+    qid: entry
+    for entry in data
+    if isinstance(entry, dict)
+    and isinstance((qid := entry.get("question_id")), str)
+    and qid
+}
 
 
 def _extract_usage(usage: dict | None) -> tuple[int | None, int | None, int | None]:
