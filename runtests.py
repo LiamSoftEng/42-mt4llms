@@ -4,11 +4,12 @@ If the results file contains followup responses (from --mr), tests both
 and computes MR verdict.
 
 Usage:
-    python runtests.py --results results/google_gemma-2-2b-it.json
-    python runtests.py --results results/google_gemma-2-2b-it.json --n 5
-    python runtests.py --results results/google_gemma-2-2b-it.json --n 1 --debug
-    python runtests.py --results results/google_gemma-2-2b-it.json --stdout
-    python runtests.py --results results/google_gemma-2-2b-it.json --out results/google_gemma-2-2b-it.tests.log
+    python runtests.py --results results/google_gemma-2-2b-it/base.json
+    python runtests.py --results results/google_gemma-2-2b-it/base.json --n 5
+    python runtests.py --results results/google_gemma-2-2b-it/base.json --n 1 --debug
+    python runtests.py --results results/google_gemma-2-2b-it/base.json --stdout
+    python runtests.py --results results/google_gemma-2-2b-it/base.json --out results/google_gemma-2-2b-it/base.tests.log
+    python runtests.py --results results/google_gemma-2-2b-it/mr-04-persona_role_prompting.json --followup-only
 """
 
 import json
@@ -52,7 +53,7 @@ def test_response(response, entry, func_name, debug, label="source"):
     return all_passed, len(tests), code
 
 
-def run_tests(results_path: str, n: int = None, debug: bool = False):
+def run_tests(results_path: str, n: int = None, debug: bool = False, followup_only: bool = False):
     with open(results_path, encoding="utf-8") as f:
         results = json.load(f)
 
@@ -62,6 +63,8 @@ def run_tests(results_path: str, n: int = None, debug: bool = False):
     total = passed = failed = skipped = 0
     mr_holds = mr_violated = 0
     has_mr = any(r.get("relation") for r in results)
+    if followup_only:
+        has_mr = False
     metric_rows = []
 
     for entry in results:
@@ -78,6 +81,30 @@ def run_tests(results_path: str, n: int = None, debug: bool = False):
             continue
 
         func_name = get_func_name(entry)
+
+        if followup_only:
+            primary_response = entry.get("followup_response") or entry.get("response", "")
+            label = "followup" if entry.get("followup_response") else "source"
+            source_passed, n_tests, source_code = test_response(primary_response, entry, func_name, debug, label=label)
+
+            if source_passed is None:
+                skipped += 1
+                continue
+
+            if source_passed:
+                passed += 1
+            else:
+                failed += 1
+
+            source_metrics = compute_metrics(source_code)
+            metric_rows.append(
+                {
+                    "id": qid,
+                    "source_ncloc": source_metrics["ncloc"],
+                    "source_cc": source_metrics["cyclomatic_complexity"],
+                }
+            )
+            continue
 
         # Test source response
         source_passed, n_tests, source_code = test_response(entry["response"], entry, func_name, debug, label="source")
@@ -198,6 +225,11 @@ if __name__ == "__main__":
     parser.add_argument("--debug", action="store_true", help="Print extracted code and generated scripts")
     parser.add_argument("--out", type=str, default=None, help="Path to write test output log")
     parser.add_argument("--stdout", action="store_true", help="Also print output to the terminal")
+    parser.add_argument(
+        "--followup-only",
+        action="store_true",
+        help="Test followup responses only (for MR-only runs)",
+    )
     args = parser.parse_args()
 
     out_path = Path(args.out) if args.out else Path(args.results).with_suffix(".tests.log")
@@ -206,4 +238,4 @@ if __name__ == "__main__":
     with open(out_path, "w", encoding="utf-8") as f:
         stream = _Tee(sys.stdout, f) if args.stdout else f
         with redirect_stdout(stream), redirect_stderr(stream):
-            run_tests(args.results, args.n, debug=args.debug)
+            run_tests(args.results, args.n, debug=args.debug, followup_only=args.followup_only)

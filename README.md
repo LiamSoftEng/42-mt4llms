@@ -79,6 +79,7 @@ python main.py
 | `--n` | Limit number of samples | `--n 10` |
 | `--after` | Only problems on or after this date | `--after 2024-01-01` |
 | `--mr` | Apply a metamorphic relation alongside the normal run | `--mr 4` |
+| `--mr-only` | Skip base LLM call and generate followup only (requires `--mr`) | `--mr 4 --mr-only` |
 
 **Run with a metamorphic relation**
 ```powershell
@@ -87,6 +88,9 @@ python main.py --models deepseek --n 5 --mr 0
 
 # Run with MR4 (persona role prompting)
 python main.py --models deepseek --n 5 --mr 4
+
+# Run MR4 without base generation
+python main.py --models deepseek --n 5 --mr 4 --mr-only
 ```
 
 **Test the responses**
@@ -95,6 +99,7 @@ python runtests.py --results results\google_gemma-2-2b-it\base.json
 python runtests.py --results results\google_gemma-2-2b-it\base.json --n 5
 python runtests.py --results results\google_gemma-2-2b-it\base.json --stdout
 python runtests.py --results results\google_gemma-2-2b-it\base.json --debug
+python runtests.py --results results\google_gemma-2-2b-it\mr-04-persona_role_prompting.json --followup-only
 ```
 Replace `results\<model>\<file>.json` with your file.
 

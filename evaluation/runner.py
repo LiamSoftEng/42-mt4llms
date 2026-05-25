@@ -26,6 +26,27 @@ def build_results_path(model_name: str, relation_name: str | None = None, relati
     return model_dir / filename
 
 
+def _load_base_results(model_name: str) -> dict[str, dict]:
+    base_path = build_results_path(model_name, None, None)
+    if not base_path.exists():
+        print(f"  Base results not found for MR-only run: {base_path}")
+        return {}
+    try:
+        with open(base_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        print(f"  Failed to read base results for MR-only run: {base_path}")
+        return {}
+    if not isinstance(data, list):
+        print(f"  Unexpected base results format (expected list): {base_path}")
+        return {}
+    return {
+        entry.get("question_id"): entry
+        for entry in data
+        if isinstance(entry, dict) and entry.get("question_id")
+    }
+
+
 def _extract_usage(usage: dict | None) -> tuple[int | None, int | None, int | None]:
     if not usage:
         return None, None, None
@@ -77,12 +98,21 @@ class LLMResult:
 
 
 class PipelineRunner:
-    def __init__(self, models: List[BaseLLM], dataset, delay: float = 0.5, relation=None, relation_id: int | None = None):
+    def __init__(
+        self,
+        models: List[BaseLLM],
+        dataset,
+        delay: float = 0.5,
+        relation=None,
+        relation_id: int | None = None,
+        mr_only: bool = False,
+    ):
         self.models = models
         self.dataset = dataset
         self.delay = delay
         self.relation = relation
         self.relation_id = relation_id
+        self.mr_only = mr_only
         Path(RESULTS_DIR).mkdir(exist_ok=True)
 
     def run(self):
@@ -99,21 +129,34 @@ class PipelineRunner:
                 "reported": False,
             }
 
+            base_results = {}
+            if self.relation and self.mr_only:
+                base_results = _load_base_results(model.model_name)
+
             for i, sample in enumerate(self.dataset):
                 question = build_code_question(sample)
                 prompt = build_prompt(question)
 
                 print(f"  [{i+1}/{len(self.dataset)}] {sample['question_id']} ({sample['difficulty']})", end=" ... ")
 
-                # Source response
-                try:
-                    response = model.generate(prompt)
-                    error = ""
-                    usage = model.last_usage
-                except Exception as e:
-                    response = ""
-                    error = str(e)
-                    usage = None
+                response = ""
+                error = ""
+                usage = None
+                if not (self.relation and self.mr_only):
+                    # Source response
+                    try:
+                        response = model.generate(prompt)
+                        usage = model.last_usage
+                    except Exception as e:
+                        response = ""
+                        error = str(e)
+                        usage = None
+
+                if self.relation and self.mr_only and base_results:
+                    base_entry = base_results.get(sample["question_id"])
+                    if base_entry:
+                        response = base_entry.get("response", "")
+                        error = base_entry.get("error", "")
 
                 prompt_tokens, completion_tokens, total_tokens = _extract_usage(usage)
                 _accumulate_usage(token_totals, usage)
@@ -154,7 +197,10 @@ class PipelineRunner:
                     except Exception as e:
                         followup_error = str(e)
 
-                    print(f"ok (+ {self.relation.name} [{target}])")
+                    if self.mr_only:
+                        print(f"ok (mr-only + {self.relation.name} [{target}])")
+                    else:
+                        print(f"ok (+ {self.relation.name} [{target}])")
                 else:
                     print("ok")
 
