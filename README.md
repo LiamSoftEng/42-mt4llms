@@ -43,9 +43,14 @@ Then open `.env` and fill in your keys.
 ├── main.py
 ├── runtests.py
 └── results/
-    ├── <model>.json
-    ├── <model>.tests.log
-    └── dataset_preview.json
+  ├── <model>/
+  │   ├── base.json
+  │   ├── base.tests.log
+  │   ├── mr-04-persona_role_prompting.json
+  │   ├── mr-04-persona_role_prompting.tests.log
+  │   ├── all_mrs.json
+  │   └── all_mrs.tests.log
+  └── dataset_preview.json
 ```
 ---
 ## Usage
@@ -86,16 +91,17 @@ python main.py --models deepseek --n 5 --mr 4
 
 **Test the responses**
 ```powershell
-python runtests.py --results results\google_gemma-2-2b-it.json
-python runtests.py --results results\google_gemma-2-2b-it.json --n 5
-python runtests.py --results results\google_gemma-2-2b-it.json --stdout
-python runtests.py --results results\google_gemma-2-2b-it.json --debug
+python runtests.py --results results\google_gemma-2-2b-it\base.json
+python runtests.py --results results\google_gemma-2-2b-it\base.json --n 5
+python runtests.py --results results\google_gemma-2-2b-it\base.json --stdout
+python runtests.py --results results\google_gemma-2-2b-it\base.json --debug
 ```
-Replace `results\<yourresults.json>` with your file.
+Replace `results\<model>\<file>.json` with your file.
 
 ---
 ## Output
-Each `main.py` run saves a JSON file to `results\` named after the model:
+Each `main.py` run saves a JSON file under `results\<model>\`.
+Base runs use `base.json`; MR runs use `mr-<id>-<name>.json`.
 ```json
 {
   "question_id": "1873_A",

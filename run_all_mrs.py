@@ -4,15 +4,12 @@ import sys
 from pathlib import Path
 
 from metamorphic.relations_list import RELATIONS
-from config.settings import GROK_MODEL, RESULTS_DIR
+from config.settings import GROK_MODEL
+from evaluation.runner import build_results_path
 
 
-def _safe_name(model_name: str) -> str:
-    return model_name.replace("/", "_").replace(".", "-")
-
-
-def _load_run_results(base_name: str) -> list[dict] | None:
-    src = Path(RESULTS_DIR) / f"{base_name}.json"
+def _load_run_results(model_name: str, relation_name: str, relation_id: int) -> list[dict] | None:
+    src = build_results_path(model_name, relation_name, relation_id)
     if not src.exists():
         print(f"Expected results file not found: {src}")
         return None
@@ -21,12 +18,14 @@ def _load_run_results(base_name: str) -> list[dict] | None:
 
 
 def main() -> int:
-    base_name = _safe_name(GROK_MODEL)
-    out_path = Path(RESULTS_DIR) / f"{base_name}_all_mrs.json"
+    base_results_path = build_results_path(GROK_MODEL, None, None)
+    model_dir = base_results_path.parent
+    out_path = model_dir / "all_mrs.json"
     combined_results: list[dict] = []
     mr_ids = sorted(RELATIONS.keys())
     for mr_id in mr_ids:
-        print(f"\n=== Running MR {mr_id}: {RELATIONS[mr_id]['name']} ===")
+        mr_name = RELATIONS[mr_id]["name"]
+        print(f"\n=== Running MR {mr_id}: {mr_name} ===")
         result = subprocess.run(
             [
                 sys.executable,
@@ -43,17 +42,17 @@ def main() -> int:
         if result.returncode != 0:
             print(f"MR {mr_id} failed with exit code {result.returncode}")
             return result.returncode
-        run_results = _load_run_results(base_name)
+        run_results = _load_run_results(GROK_MODEL, mr_name, mr_id)
         if run_results is None:
             return 1
         combined_results.extend(run_results)
 
-    Path(RESULTS_DIR).mkdir(exist_ok=True)
+    model_dir.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(combined_results, f, indent=2, ensure_ascii=False)
     print(f"\nSaved all MR results -> {out_path}")
 
-    tests_out_path = Path(RESULTS_DIR) / f"{base_name}_all_mrs.tests.log"
+    tests_out_path = model_dir / "all_mrs.tests.log"
     test_result = subprocess.run(
         [
             sys.executable,

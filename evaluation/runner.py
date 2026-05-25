@@ -9,6 +9,23 @@ from data.loader import build_code_question, build_prompt, INSTRUCTION_PREFIX, I
 from config.settings import RESULTS_DIR
 
 
+def _safe_name(model_name: str) -> str:
+    return model_name.replace("/", "_").replace(".", "-")
+
+
+def build_results_path(model_name: str, relation_name: str | None = None, relation_id: int | None = None) -> Path:
+    model_dir = Path(RESULTS_DIR) / _safe_name(model_name)
+    model_dir.mkdir(parents=True, exist_ok=True)
+    if relation_name:
+        if relation_id is not None:
+            filename = f"mr-{relation_id:02d}-{relation_name}.json"
+        else:
+            filename = f"mr-{relation_name}.json"
+    else:
+        filename = "base.json"
+    return model_dir / filename
+
+
 def _extract_usage(usage: dict | None) -> tuple[int | None, int | None, int | None]:
     if not usage:
         return None, None, None
@@ -60,11 +77,12 @@ class LLMResult:
 
 
 class PipelineRunner:
-    def __init__(self, models: List[BaseLLM], dataset, delay: float = 0.5, relation=None):
+    def __init__(self, models: List[BaseLLM], dataset, delay: float = 0.5, relation=None, relation_id: int | None = None):
         self.models = models
         self.dataset = dataset
         self.delay = delay
         self.relation = relation
+        self.relation_id = relation_id
         Path(RESULTS_DIR).mkdir(exist_ok=True)
 
     def run(self):
@@ -185,8 +203,8 @@ class PipelineRunner:
         print("\nAll models complete.")
 
     def _save(self, model_name: str, results: list):
-        safe_name = model_name.replace("/", "_").replace(".", "-")
-        out_path = Path(RESULTS_DIR) / f"{safe_name}.json"
+        relation_name = self.relation.name if self.relation else None
+        out_path = build_results_path(model_name, relation_name, self.relation_id)
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(results, f, indent=2, ensure_ascii=False)
         print(f"\n  Saved {len(results)} results -> {out_path}")

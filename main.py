@@ -1,14 +1,12 @@
 import argparse
 import subprocess
 import sys
-from pathlib import Path
 
 from data.loader import load_livecode_bench
-from evaluation.runner import PipelineRunner
+from evaluation.runner import PipelineRunner, build_results_path
 from llms import ClaudeModel, OpenAIModel, GeminiModel, DeepSeekModel, GrokModel
 import importlib
 from metamorphic.relations_list import RELATIONS
-from config.settings import RESULTS_DIR
 
 MODEL_CHOICES = {
     "claude": ClaudeModel,
@@ -28,12 +26,8 @@ def get_relation(mr_id: int):
     return cls()
 
 
-def _safe_name(model_name: str) -> str:
-    return model_name.replace("/", "_").replace(".", "-")
-
-
-def _run_tests(model_name: str) -> int:
-    results_path = Path(RESULTS_DIR) / f"{_safe_name(model_name)}.json"
+def _run_tests(model_name: str, relation_name: str | None, relation_id: int | None) -> int:
+    results_path = build_results_path(model_name, relation_name, relation_id)
     if not results_path.exists():
         print(f"Results file not found for tests: {results_path}")
         return 1
@@ -89,12 +83,13 @@ def main() -> int:
 
     print(f"Running models: {[m.model_name for m in models]}, on metamorphic relation: {args.mr is not None}")
 
-    runner = PipelineRunner(models=models, dataset=dataset, relation=relation)
+    runner = PipelineRunner(models=models, dataset=dataset, relation=relation, relation_id=args.mr)
     runner.run()
 
     if args.run_tests:
         for model in models:
-            exit_code = _run_tests(model.model_name)
+            relation_name = relation.name if relation else None
+            exit_code = _run_tests(model.model_name, relation_name, args.mr)
             if exit_code != 0:
                 return exit_code
     return 0
