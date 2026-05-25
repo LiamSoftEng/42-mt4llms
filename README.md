@@ -60,7 +60,9 @@ python main.py --models deepseek --n 5
 # Only problems from 2024 onwards (dates in yyyy-mm-dd)
 python main.py --models deepseek --after 2024-01-01
 # Combine filters
-python main.py --models deepseek --after 2024-01-01 --n 10
+python main.py --models grok --after 2025-01-01 --n 10
+# Combine filters and run tests
+python main.py --models grok --after 2025-01-01 --n 10 --run-tests
 # Multiple models
 python main.py --models claude openai --n 5
 # All models, full dataset
@@ -86,7 +88,6 @@ python main.py --models deepseek --n 5 --mr 4
 ```powershell
 python runtests.py --results results\google_gemma-2-2b-it.json
 python runtests.py --results results\google_gemma-2-2b-it.json --n 5
-python runtests.py --results results\google_gemma-2-2b-it.json --out results\google_gemma-2-2b-it.tests.log
 python runtests.py --results results\google_gemma-2-2b-it.json --stdout
 python runtests.py --results results\google_gemma-2-2b-it.json --debug
 ```

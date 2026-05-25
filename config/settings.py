@@ -18,19 +18,20 @@ DEEPSEEK_MODEL = "minimaxai/minimax-m2.7"
 
 # Groq model options (uncomment one)
 # GROK_MODEL = "openai/gpt-oss-20b"
-GROK_MODEL = "openai/gpt-oss-120b"
+# GROK_MODEL = "openai/gpt-oss-120b"
+GROK_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 # GROK_MODEL = "llama-3.3-70b-versatile"
 # GROK_MODEL = "llama-3.1-8b-instant"
-# GROK_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 # GROK_MODEL = "groq/compound"
 # GROK_MODEL = "groq/compound-mini"
 # GROK_MODEL = "allam-2-7b"
 # GROK_MODEL = "meta-llama/llama-prompt-guard-2-22m"
 # GROK_MODEL = "meta-llama/llama-prompt-guard-2-86m"
 # GROK_MODEL = "openai/gpt-oss-safeguard-20b"
+# GROK_MODEL = "qwen/qwen3-32b"
 
 # Generation params (TODO: adjust as needed)
-MAX_TOKENS =4096
+MAX_TOKENS = 4096
 TEMPERATURE = 0.2  # Deterministic outputs for reproducibility
 
 # Dataset
@@ -40,3 +41,13 @@ N_SAMPLES = None  # Set to an int (e.g. 10) to limit samples during dev
 
 # Output
 RESULTS_DIR = "results"
+COST_TRACKING_PATH = os.getenv("COST_TRACKING_PATH", os.path.join(RESULTS_DIR, ".model_costs.json"))
+
+# Cost tracking (USD per 1M tokens). Update these with current provider rates.
+COST_RATES_PER_MILLION = {
+    CLAUDE_MODEL: {"prompt": 0.0, "completion": 0.0},
+    OPENAI_MODEL: {"prompt": 0.05, "completion": 0.40},
+    GEMINI_MODEL: {"prompt": 0.0, "completion": 0.0},
+    DEEPSEEK_MODEL: {"prompt": 0.0, "completion": 0.0},
+    GROK_MODEL: {"prompt": 0.05, "completion": 0.40},
+}
