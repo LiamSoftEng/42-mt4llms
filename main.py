@@ -86,7 +86,7 @@ def parse_args():
     parser.add_argument(
         "--resume",
         action="store_true",
-        help="Continue from an existing results file by skipping completed question IDs",
+        help="Continue from an existing results file by skipping entries with required code blocks",
     )
     return parser.parse_args()
 
