@@ -80,6 +80,7 @@ python main.py
 | `--after` | Only problems on or after this date | `--after 2024-01-01` |
 | `--mr` | Apply a metamorphic relation alongside the normal run | `--mr 4` |
 | `--mr-only` | Skip base LLM call and generate followup only (requires `--mr`) | `--mr 4 --mr-only` |
+| `--repeats` | Generate each source/followup prompt multiple times for prompt variability analysis | `--repeats 5` |
 
 **Run with a metamorphic relation**
 ```powershell
@@ -91,6 +92,9 @@ python main.py --models deepseek --n 5 --mr 4
 
 # Run MR4 without base generation
 python main.py --models deepseek --n 5 --mr 4 --mr-only
+
+# Run the same source prompt and MR prompt 5 times, then compare variability
+python main.py --models deepseek --n 5 --mr 4 --repeats 5 --run-tests
 ```
 
 **Test the responses**
@@ -132,15 +136,17 @@ Base runs use `base.json`; MR runs use `mr-<id>-<name>.json`.
 ```
 Followup fields are only populated when `--mr` is used. If a model call fails, `error` will contain the message and `response` will be empty; the pipeline continues to the next sample.
 
-`runtests.py` prints per-test verdicts, MR holds/violations, and a metrics summary table using NCLOC and cyclomatic complexity (radon):
+`runtests.py` prints per-test verdicts, MR holds/violations, and a metrics summary table using NCLOC, cyclomatic complexity (radon), code similarity, and prompt variability:
 ```
   [source]   Test 1 [functional]: PASS
   [followup] Test 1 [functional]: PASS
   MR [dead_context]: HOLDS
 
-  ID               Src NCLOC   Src CC  Flw NCLOC   Flw CC   dNCLOC      dCC       MR
-  1873_A                 14     1.00         13     1.00       -1     +0.00    HOLDS
+  ID               Src NCLOC   Src CC  Flw NCLOC   Flw CC  CodeSim  SrcDist   SrcStd  FlwDist   FlwStd   dNCLOC      dCC  Var>Src       MR
+  1873_A                 14     1.00         13     1.00   0.9412   0.0321   0.0044   0.0618   0.0120       -1    +0.00      YES    HOLDS
 ```
+
+Prompt variability is measured from repeated generations. `CodeSim` compares the first source and first followup code. `SrcDist` and `FlwDist` are mean pairwise embedding distances across repeated code samples, computed as `1 - CodeSim`. `SrcStd` and `FlwStd` are the standard deviations of those pairwise distances. `Var>Src` is `YES` when the MR followup prompt has a higher mean distance than the original source prompt.
 
 ---
 ## Metamorphic Relations

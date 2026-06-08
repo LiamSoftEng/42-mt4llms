@@ -3,7 +3,9 @@ Code metrics computed on extracted code blocks using radon.
 """
 
 from functools import lru_cache
+from itertools import combinations
 import os
+from statistics import mean, stdev
 import warnings
 
 from radon.raw import analyze
@@ -106,6 +108,56 @@ def compute_code_similarity(code_a: str | None, code_b: str | None) -> float | N
     except Exception as exc:
         _codesim_debug(f"transformers fallback failed: {exc}")
         return None
+
+
+def compute_code_distance(code_a: str | None, code_b: str | None) -> float | None:
+    """
+    Compute embedding distance as 1 - cosine similarity.
+    Returns None when similarity cannot be computed.
+    """
+    similarity = compute_code_similarity(code_a, code_b)
+    if similarity is None:
+        return None
+    return float(1 - similarity)
+
+
+def compute_pairwise_code_variability(codes: list[str | None]) -> dict:
+    """
+    Measure variability across repeated generated code samples.
+
+    Each code sample is embedded and compared against every other sample.
+    Standard deviation is computed over pairwise embedding distances, so
+    higher values mean the prompt produced less consistent code across runs.
+    """
+    valid_codes = [code for code in codes if code]
+    distances = []
+    similarities = []
+
+    for code_a, code_b in combinations(valid_codes, 2):
+        similarity = compute_code_similarity(code_a, code_b)
+        if similarity is None:
+            continue
+        similarities.append(float(similarity))
+        distances.append(float(1 - similarity))
+
+    if not distances:
+        return {
+            "n_codes": len(valid_codes),
+            "n_pairs": 0,
+            "mean_similarity": None,
+            "std_similarity": None,
+            "mean_distance": None,
+            "std_distance": None,
+        }
+
+    return {
+        "n_codes": len(valid_codes),
+        "n_pairs": len(distances),
+        "mean_similarity": round(mean(similarities), 6),
+        "std_similarity": round(stdev(similarities), 6) if len(similarities) > 1 else 0.0,
+        "mean_distance": round(mean(distances), 6),
+        "std_distance": round(stdev(distances), 6) if len(distances) > 1 else 0.0,
+    }
 
 
 def compute_ncloc(code: str) -> int:

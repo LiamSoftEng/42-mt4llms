@@ -1,7 +1,7 @@
 import json
 import time
 from pathlib import Path
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass, asdict, field
 from typing import List
 
 from llms.base import BaseLLM
@@ -86,6 +86,7 @@ class LLMResult:
     private_test_cases: str
     metadata: str
     error: str = ""
+    response_samples: list[str] = field(default_factory=list)
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     total_tokens: int | None = None
@@ -96,6 +97,7 @@ class LLMResult:
     followup_question: str = ""
     followup_response: str = ""
     followup_error: str = ""
+    followup_response_samples: list[str] = field(default_factory=list)
     followup_prompt_tokens: int | None = None
     followup_completion_tokens: int | None = None
     followup_total_tokens: int | None = None
@@ -110,6 +112,7 @@ class PipelineRunner:
         relation=None,
         relation_id: int | None = None,
         mr_only: bool = False,
+        prompt_repeats: int = 1,
     ):
         self.models = models
         self.dataset = dataset
@@ -117,6 +120,7 @@ class PipelineRunner:
         self.relation = relation
         self.relation_id = relation_id
         self.mr_only = mr_only
+        self.prompt_repeats = max(1, prompt_repeats)
         Path(RESULTS_DIR).mkdir(exist_ok=True)
 
     def run(self):
@@ -144,32 +148,44 @@ class PipelineRunner:
                 print(f"  [{i+1}/{len(self.dataset)}] {sample['question_id']} ({sample['difficulty']})", end=" ... ")
 
                 response = ""
+                response_samples = []
                 error = ""
                 usage = None
                 if not (self.relation and self.mr_only):
                     # Source response
-                    try:
-                        response = model.generate(prompt)
-                        usage = model.last_usage
-                    except Exception as e:
-                        response = ""
-                        error = str(e)
-                        usage = None
+                    for repeat_index in range(self.prompt_repeats):
+                        try:
+                            current_response = model.generate(prompt)
+                            current_usage = model.last_usage
+                        except Exception as e:
+                            current_response = ""
+                            current_usage = None
+                            if repeat_index == 0:
+                                error = str(e)
+
+                        response_samples.append(current_response)
+                        if repeat_index == 0:
+                            response = current_response
+                            usage = current_usage
+                        _accumulate_usage(token_totals, current_usage)
+                        if repeat_index < self.prompt_repeats - 1:
+                            time.sleep(self.delay)
 
                 if self.relation and self.mr_only and base_results:
                     base_entry = base_results.get(sample["question_id"])
                     if base_entry:
                         response = base_entry.get("response", "")
+                        response_samples = base_entry.get("response_samples") or ([response] if response else [])
                         error = base_entry.get("error", "")
 
                 prompt_tokens, completion_tokens, total_tokens = _extract_usage(usage)
-                _accumulate_usage(token_totals, usage)
 
                 # Followup response if MR is set
                 followup_question = ""
                 followup_instruction_prefix = ""
                 followup_instruction_suffix = ""
                 followup_response = ""
+                followup_response_samples = []
                 followup_error = ""
                 followup_prompt_tokens = None
                 followup_completion_tokens = None
@@ -191,22 +207,32 @@ class PipelineRunner:
                         )
                         followup_prompt = build_prompt(question, followup_instruction_prefix, followup_instruction_suffix)
 
-                    try:
-                        followup_response = model.generate(followup_prompt)
-                        followup_usage = model.last_usage
-                        followup_prompt_tokens, followup_completion_tokens, followup_total_tokens = _extract_usage(
-                            followup_usage
-                        )
+                    for repeat_index in range(self.prompt_repeats):
+                        try:
+                            current_followup_response = model.generate(followup_prompt)
+                            followup_usage = model.last_usage
+                        except Exception as e:
+                            current_followup_response = ""
+                            followup_usage = None
+                            if repeat_index == 0:
+                                followup_error = str(e)
+
+                        followup_response_samples.append(current_followup_response)
+                        if repeat_index == 0:
+                            followup_response = current_followup_response
+                            followup_prompt_tokens, followup_completion_tokens, followup_total_tokens = _extract_usage(
+                                followup_usage
+                            )
                         _accumulate_usage(token_totals, followup_usage)
-                    except Exception as e:
-                        followup_error = str(e)
+                        if repeat_index < self.prompt_repeats - 1:
+                            time.sleep(self.delay)
 
                     if self.mr_only:
-                        print(f"ok (mr-only + {self.relation.name} [{target}])")
+                        print(f"ok (mr-only + {self.relation.name} [{target}], repeats={self.prompt_repeats})")
                     else:
-                        print(f"ok (+ {self.relation.name} [{target}])")
+                        print(f"ok (+ {self.relation.name} [{target}], repeats={self.prompt_repeats})")
                 else:
-                    print("ok")
+                    print(f"ok (repeats={self.prompt_repeats})" if self.prompt_repeats > 1 else "ok")
 
                 results.append(asdict(LLMResult(
                     question_id=sample["question_id"],
@@ -218,6 +244,7 @@ class PipelineRunner:
                     instruction_suffix=INSTRUCTION_SUFFIX,
                     question=question,
                     response=response,
+                    response_samples=response_samples,
                     public_test_cases=json.dumps(sample.get("public_test_cases", [])),
                     private_test_cases=sample.get("private_test_cases", ""),
                     metadata=json.dumps(sample.get("metadata", {})),
@@ -230,6 +257,7 @@ class PipelineRunner:
                     followup_instruction_suffix=followup_instruction_suffix,
                     followup_question=followup_question,
                     followup_response=followup_response,
+                    followup_response_samples=followup_response_samples,
                     followup_error=followup_error,
                     followup_prompt_tokens=followup_prompt_tokens,
                     followup_completion_tokens=followup_completion_tokens,

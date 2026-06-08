@@ -77,6 +77,12 @@ def parse_args():
         action="store_true",
         help="Run runtests.py on each model's results after generation",
     )
+    parser.add_argument(
+        "--repeats",
+        type=int,
+        default=1,
+        help="Generate each source/followup prompt this many times to measure prompt variability",
+    )
     return parser.parse_args()
 
 def main() -> int:
@@ -88,6 +94,9 @@ def main() -> int:
     if args.mr_only and args.mr is None:
         print("--mr-only requires --mr to be set")
         return 2
+    if args.repeats < 1:
+        print("--repeats must be at least 1")
+        return 2
 
     print(f"Running models: {[m.model_name for m in models]}, on metamorphic relation: {args.mr is not None}")
 
@@ -97,6 +106,7 @@ def main() -> int:
         relation=relation,
         relation_id=args.mr,
         mr_only=args.mr_only,
+        prompt_repeats=args.repeats,
     )
     runner.run()
 

@@ -19,7 +19,27 @@ from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 
 from evaluation.executor import extract_code, get_all_tests, get_func_name, run_test
-from evaluation.metrics import compute_metrics, compute_code_similarity
+from evaluation.metrics import compute_metrics, compute_code_similarity, compute_pairwise_code_variability
+
+
+def _response_samples(entry: dict, sample_key: str, primary_key: str) -> list[str]:
+    samples = entry.get(sample_key)
+    if isinstance(samples, list) and samples:
+        return [sample for sample in samples if isinstance(sample, str)]
+    primary = entry.get(primary_key, "")
+    return [primary] if isinstance(primary, str) and primary else []
+
+
+def _code_samples(responses: list[str]) -> list[str | None]:
+    return [extract_code(response) for response in responses]
+
+
+def _format_float(value, digits: int = 4) -> str:
+    return f"{value:.{digits}f}" if isinstance(value, (int, float)) else "N/A"
+
+
+def _format_delta(value) -> str:
+    return f"{value:+}" if isinstance(value, (int, float)) else value
 
 
 def test_response(response, entry, func_name, debug, label="source"):
@@ -97,11 +117,15 @@ def run_tests(results_path: str, n: int = None, debug: bool = False, followup_on
                 failed += 1
 
             source_metrics = compute_metrics(source_code)
+            source_variability = compute_pairwise_code_variability(
+                _code_samples(_response_samples(entry, "response_samples", "response"))
+            )
             metric_rows.append(
                 {
                     "id": qid,
                     "source_ncloc": source_metrics["ncloc"],
                     "source_cc": source_metrics["cyclomatic_complexity"],
+                    "source_variability": source_variability,
                 }
             )
             continue
@@ -119,12 +143,17 @@ def run_tests(results_path: str, n: int = None, debug: bool = False, followup_on
             failed += 1
 
         source_metrics = compute_metrics(source_code)
+        source_variability = compute_pairwise_code_variability(
+            _code_samples(_response_samples(entry, "response_samples", "response"))
+        )
         row = {
             "id": qid,
             "source_ncloc": source_metrics["ncloc"],
             "source_cc": source_metrics["cyclomatic_complexity"],
+            "source_variability": source_variability,
             "followup_ncloc": None,
             "followup_cc": None,
+            "followup_variability": None,
             "code_sim": None,
             "mr_holds": None,
         }
@@ -148,6 +177,9 @@ def run_tests(results_path: str, n: int = None, debug: bool = False, followup_on
             followup_metrics = compute_metrics(followup_code)
             row["followup_ncloc"] = followup_metrics["ncloc"]
             row["followup_cc"] = followup_metrics["cyclomatic_complexity"]
+            row["followup_variability"] = compute_pairwise_code_variability(
+                _code_samples(_response_samples(entry, "followup_response_samples", "followup_response"))
+            )
             if source_code and followup_code:
                 row["code_sim"] = compute_code_similarity(source_code, followup_code)
 
@@ -170,10 +202,12 @@ def run_tests(results_path: str, n: int = None, debug: bool = False, followup_on
         if has_mr:
             print(
                 f"  {'ID':<15} {'Src NCLOC':>10} {'Src CC':>8} {'Flw NCLOC':>10} "
-                f"{'Flw CC':>8} {'CodeSim':>8} {'dNCLOC':>8} {'dCC':>8} {'MR':>8}"
+                f"{'Flw CC':>8} {'CodeSim':>8} {'SrcDist':>8} {'SrcStd':>8} "
+                f"{'FlwDist':>8} {'FlwStd':>8} {'dNCLOC':>8} {'dCC':>8} {'Var>Src':>8} {'MR':>8}"
             )
             print(
-                f"  {'-'*15} {'-'*10} {'-'*8} {'-'*10} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*8}"
+                f"  {'-'*15} {'-'*10} {'-'*8} {'-'*10} {'-'*8} {'-'*8} {'-'*8} {'-'*8} "
+                f"{'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*8} {'-'*8}"
             )
             for r in metric_rows:
                 delta_ncloc = (
@@ -189,19 +223,31 @@ def run_tests(results_path: str, n: int = None, debug: bool = False, followup_on
                 mr = ("HOLDS" if r["mr_holds"] else "VIOLATED") if r["mr_holds"] is not None else "N/A"
                 flw_ncloc = r["followup_ncloc"] if r["followup_ncloc"] is not None else "N/A"
                 flw_cc = r["followup_cc"] if r["followup_cc"] is not None else "N/A"
-                code_sim = r["code_sim"]
-                code_sim_str = f"{code_sim:.4f}" if isinstance(code_sim, (int, float)) else "N/A"
-                delta_ncloc_str = f"{delta_ncloc:+}" if isinstance(delta_ncloc, (int, float)) else delta_ncloc
-                delta_cc_str = f"{delta_cc:+}" if isinstance(delta_cc, (int, float)) else delta_cc
+                source_var = r.get("source_variability") or {}
+                followup_var = r.get("followup_variability") or {}
+                source_mean_dist = source_var.get("mean_distance")
+                followup_mean_dist = followup_var.get("mean_distance")
+                if isinstance(source_mean_dist, (int, float)) and isinstance(followup_mean_dist, (int, float)):
+                    variation_greater = "YES" if followup_mean_dist > source_mean_dist else "NO"
+                else:
+                    variation_greater = "N/A"
                 print(
                     f"  {r['id']:<15} {r['source_ncloc']:>10} {r['source_cc']:>8} "
-                    f"{str(flw_ncloc):>10} {str(flw_cc):>8} {code_sim_str:>8} {delta_ncloc_str:>8} {delta_cc_str:>8} {mr:>8}"
+                    f"{str(flw_ncloc):>10} {str(flw_cc):>8} {_format_float(r['code_sim']):>8} "
+                    f"{_format_float(source_mean_dist):>8} {_format_float(source_var.get('std_distance')):>8} "
+                    f"{_format_float(followup_mean_dist):>8} {_format_float(followup_var.get('std_distance')):>8} "
+                    f"{_format_delta(delta_ncloc):>8} {_format_delta(delta_cc):>8} {variation_greater:>8} {mr:>8}"
                 )
         else:
-            print(f"  {'ID':<15} {'NCLOC':>10} {'CC':>8}")
-            print(f"  {'-'*15} {'-'*10} {'-'*8}")
+            print(f"  {'ID':<15} {'NCLOC':>10} {'CC':>8} {'MeanDist':>8} {'StdDist':>8} {'Pairs':>8}")
+            print(f"  {'-'*15} {'-'*10} {'-'*8} {'-'*8} {'-'*8} {'-'*8}")
             for r in metric_rows:
-                print(f"  {r['id']:<15} {r['source_ncloc']:>10} {r['source_cc']:>8}")
+                source_var = r.get("source_variability") or {}
+                print(
+                    f"  {r['id']:<15} {r['source_ncloc']:>10} {r['source_cc']:>8} "
+                    f"{_format_float(source_var.get('mean_distance')):>8} "
+                    f"{_format_float(source_var.get('std_distance')):>8} {source_var.get('n_pairs', 0):>8}"
+                )
     print(f"{'='*60}")
 
 
