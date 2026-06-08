@@ -6,8 +6,8 @@ from typing import List
 
 from llms.base import BaseLLM
 from data.loader import build_code_question, build_prompt, INSTRUCTION_PREFIX, INSTRUCTION_SUFFIX
+from evaluation.executor import extract_code
 from config.settings import RESULTS_DIR
-from typing import Any
 
 
 
@@ -49,6 +49,36 @@ def _load_base_results(model_name: str) -> dict[str, dict]:
     and isinstance((qid := entry.get("question_id")), str)
     and qid
 }
+
+
+def _load_existing_results(path: Path) -> list[dict]:
+    if not path.exists():
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        print(f"  Existing results could not be read, starting fresh: {path}")
+        return []
+    if not isinstance(data, list):
+        print(f"  Existing results are not a list, starting fresh: {path}")
+        return []
+    return [entry for entry in data if isinstance(entry, dict)]
+
+
+def _entry_has_code(entry: dict, response_key: str) -> bool:
+    response = entry.get(response_key, "")
+    return isinstance(response, str) and extract_code(response) is not None
+
+
+def _entry_complete_for_resume(entry: dict, relation=None, mr_only: bool = False) -> bool:
+    if not isinstance(entry.get("question_id"), str) or not entry["question_id"]:
+        return False
+    if mr_only:
+        return _entry_has_code(entry, "followup_response")
+    if relation:
+        return _entry_has_code(entry, "response") and _entry_has_code(entry, "followup_response")
+    return _entry_has_code(entry, "response")
 
 
 def _extract_usage(usage: dict | None) -> tuple[int | None, int | None, int | None]:
@@ -113,6 +143,7 @@ class PipelineRunner:
         relation_id: int | None = None,
         mr_only: bool = False,
         prompt_repeats: int = 1,
+        resume: bool = False,
     ):
         self.models = models
         self.dataset = dataset
@@ -121,6 +152,7 @@ class PipelineRunner:
         self.relation_id = relation_id
         self.mr_only = mr_only
         self.prompt_repeats = max(1, prompt_repeats)
+        self.resume = resume
         Path(RESULTS_DIR).mkdir(exist_ok=True)
 
     def run(self):
@@ -129,7 +161,20 @@ class PipelineRunner:
             print(f"Running model: {model.model_name}")
             print(f"{'='*50}")
 
-            results = []
+            out_path = build_results_path(
+                model.model_name,
+                self.relation.name if self.relation else None,
+                self.relation_id,
+            )
+            results = _load_existing_results(out_path) if self.resume else []
+            completed_ids = {
+                entry.get("question_id")
+                for entry in results
+                if _entry_complete_for_resume(entry, self.relation, self.mr_only)
+            }
+            if self.resume and completed_ids:
+                print(f"  Resume enabled: loaded {len(completed_ids)} completed code results from {out_path}")
+
             token_totals = {
                 "prompt_tokens": 0,
                 "completion_tokens": 0,
@@ -142,6 +187,13 @@ class PipelineRunner:
                 base_results = _load_base_results(model.model_name)
 
             for i, sample in enumerate(self.dataset):
+                if self.resume and sample["question_id"] in completed_ids:
+                    print(
+                        f"  [{i+1}/{len(self.dataset)}] {sample['question_id']} "
+                        f"({sample['difficulty']}) ... skipped (already complete)"
+                    )
+                    continue
+
                 question = build_code_question(sample)
                 prompt = build_prompt(question)
 
@@ -234,7 +286,7 @@ class PipelineRunner:
                 else:
                     print(f"ok (repeats={self.prompt_repeats})" if self.prompt_repeats > 1 else "ok")
 
-                results.append(asdict(LLMResult(
+                result_entry = asdict(LLMResult(
                     question_id=sample["question_id"],
                     question_title=sample["question_title"],
                     difficulty=sample["difficulty"],
@@ -262,11 +314,15 @@ class PipelineRunner:
                     followup_prompt_tokens=followup_prompt_tokens,
                     followup_completion_tokens=followup_completion_tokens,
                     followup_total_tokens=followup_total_tokens,
-                )))
+                ))
+                results = [entry for entry in results if entry.get("question_id") != sample["question_id"]]
+                results.append(result_entry)
+                completed_ids.add(sample["question_id"])
+                self._save_to_path(out_path, results, quiet=True)
 
                 time.sleep(self.delay)
 
-            self._save(model.model_name, results)
+            self._save_to_path(out_path, results)
 
             if token_totals["reported"]:
                 print(
@@ -280,9 +336,8 @@ class PipelineRunner:
 
         print("\nAll models complete.")
 
-    def _save(self, model_name: str, results: list):
-        relation_name = self.relation.name if self.relation else None
-        out_path = build_results_path(model_name, relation_name, self.relation_id)
+    def _save_to_path(self, out_path: Path, results: list, quiet: bool = False):
         with open(out_path, "w", encoding="utf-8") as f:
             json.dump(results, f, indent=2, ensure_ascii=False)
-        print(f"\n  Saved {len(results)} results -> {out_path}")
+        if not quiet:
+            print(f"\n  Saved {len(results)} results -> {out_path}")

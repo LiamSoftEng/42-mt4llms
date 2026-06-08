@@ -14,6 +14,7 @@ Usage:
 
 import json
 import argparse
+import csv
 import sys
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
@@ -40,6 +41,75 @@ def _format_float(value, digits: int = 4) -> str:
 
 def _format_delta(value) -> str:
     return f"{value:+}" if isinstance(value, (int, float)) else value
+
+
+def _variation_greater(source_mean_dist, followup_mean_dist) -> str:
+    if isinstance(source_mean_dist, (int, float)) and isinstance(followup_mean_dist, (int, float)):
+        return "YES" if followup_mean_dist > source_mean_dist else "NO"
+    return "N/A"
+
+
+def _write_metrics_csv(csv_path: str | Path, metric_rows: list[dict], has_mr: bool) -> None:
+    path = Path(csv_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = [
+        "id",
+        "source_passed",
+        "followup_passed",
+        "mr_holds",
+        "source_ncloc",
+        "source_cc",
+        "followup_ncloc",
+        "followup_cc",
+        "code_sim",
+        "source_mean_distance",
+        "source_std_distance",
+        "source_pairs",
+        "followup_mean_distance",
+        "followup_std_distance",
+        "followup_pairs",
+        "variation_greater_than_source",
+    ]
+    if not has_mr:
+        fieldnames = [
+            "id",
+            "source_passed",
+            "source_ncloc",
+            "source_cc",
+            "source_mean_distance",
+            "source_std_distance",
+            "source_pairs",
+        ]
+
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in metric_rows:
+            source_var = row.get("source_variability") or {}
+            followup_var = row.get("followup_variability") or {}
+            source_mean_dist = source_var.get("mean_distance")
+            followup_mean_dist = followup_var.get("mean_distance")
+            output = {
+                "id": row.get("id"),
+                "source_passed": row.get("source_passed"),
+                "followup_passed": row.get("followup_passed"),
+                "mr_holds": row.get("mr_holds"),
+                "source_ncloc": row.get("source_ncloc"),
+                "source_cc": row.get("source_cc"),
+                "followup_ncloc": row.get("followup_ncloc"),
+                "followup_cc": row.get("followup_cc"),
+                "code_sim": row.get("code_sim"),
+                "source_mean_distance": source_mean_dist,
+                "source_std_distance": source_var.get("std_distance"),
+                "source_pairs": source_var.get("n_pairs"),
+                "followup_mean_distance": followup_mean_dist,
+                "followup_std_distance": followup_var.get("std_distance"),
+                "followup_pairs": followup_var.get("n_pairs"),
+                "variation_greater_than_source": _variation_greater(source_mean_dist, followup_mean_dist),
+            }
+            writer.writerow({field: output.get(field) for field in fieldnames})
+
+    print(f"\n  Wrote metrics CSV -> {path}")
 
 
 def test_response(response, entry, func_name, debug, label="source"):
@@ -73,7 +143,13 @@ def test_response(response, entry, func_name, debug, label="source"):
     return all_passed, len(tests), code
 
 
-def run_tests(results_path: str, n: int = None, debug: bool = False, followup_only: bool = False):
+def run_tests(
+    results_path: str,
+    n: int = None,
+    debug: bool = False,
+    followup_only: bool = False,
+    csv_path: str | None = None,
+):
     with open(results_path, encoding="utf-8") as f:
         results = json.load(f)
 
@@ -117,12 +193,15 @@ def run_tests(results_path: str, n: int = None, debug: bool = False, followup_on
                 failed += 1
 
             source_metrics = compute_metrics(source_code)
+            sample_key = "followup_response_samples" if label == "followup" else "response_samples"
+            primary_key = "followup_response" if label == "followup" else "response"
             source_variability = compute_pairwise_code_variability(
-                _code_samples(_response_samples(entry, "response_samples", "response"))
+                _code_samples(_response_samples(entry, sample_key, primary_key))
             )
             metric_rows.append(
                 {
                     "id": qid,
+                    "source_passed": source_passed,
                     "source_ncloc": source_metrics["ncloc"],
                     "source_cc": source_metrics["cyclomatic_complexity"],
                     "source_variability": source_variability,
@@ -148,6 +227,8 @@ def run_tests(results_path: str, n: int = None, debug: bool = False, followup_on
         )
         row = {
             "id": qid,
+            "source_passed": source_passed,
+            "followup_passed": None,
             "source_ncloc": source_metrics["ncloc"],
             "source_cc": source_metrics["cyclomatic_complexity"],
             "source_variability": source_variability,
@@ -173,6 +254,7 @@ def run_tests(results_path: str, n: int = None, debug: bool = False, followup_on
                 else:
                     mr_violated += 1
                 row["mr_holds"] = holds
+                row["followup_passed"] = followup_passed
 
             followup_metrics = compute_metrics(followup_code)
             row["followup_ncloc"] = followup_metrics["ncloc"]
@@ -227,10 +309,7 @@ def run_tests(results_path: str, n: int = None, debug: bool = False, followup_on
                 followup_var = r.get("followup_variability") or {}
                 source_mean_dist = source_var.get("mean_distance")
                 followup_mean_dist = followup_var.get("mean_distance")
-                if isinstance(source_mean_dist, (int, float)) and isinstance(followup_mean_dist, (int, float)):
-                    variation_greater = "YES" if followup_mean_dist > source_mean_dist else "NO"
-                else:
-                    variation_greater = "N/A"
+                variation_greater = _variation_greater(source_mean_dist, followup_mean_dist)
                 print(
                     f"  {r['id']:<15} {r['source_ncloc']:>10} {r['source_cc']:>8} "
                     f"{str(flw_ncloc):>10} {str(flw_cc):>8} {_format_float(r['code_sim']):>8} "
@@ -248,6 +327,8 @@ def run_tests(results_path: str, n: int = None, debug: bool = False, followup_on
                     f"{_format_float(source_var.get('mean_distance')):>8} "
                     f"{_format_float(source_var.get('std_distance')):>8} {source_var.get('n_pairs', 0):>8}"
                 )
+        if csv_path:
+            _write_metrics_csv(csv_path, metric_rows, has_mr)
     print(f"{'='*60}")
 
 
@@ -270,6 +351,7 @@ if __name__ == "__main__":
     parser.add_argument("--n", type=int, default=None, help="Limit to first N problems")
     parser.add_argument("--debug", action="store_true", help="Print extracted code and generated scripts")
     parser.add_argument("--out", type=str, default=None, help="Path to write test output log")
+    parser.add_argument("--csv", type=str, default=None, help="Path to write metrics CSV")
     parser.add_argument("--stdout", action="store_true", help="Also print output to the terminal")
     parser.add_argument(
         "--followup-only",
@@ -284,4 +366,4 @@ if __name__ == "__main__":
     with open(out_path, "w", encoding="utf-8") as f:
         stream = _Tee(sys.stdout, f) if args.stdout else f
         with redirect_stdout(stream), redirect_stderr(stream):
-            run_tests(args.results, args.n, debug=args.debug, followup_only=args.followup_only)
+            run_tests(args.results, args.n, debug=args.debug, followup_only=args.followup_only, csv_path=args.csv)

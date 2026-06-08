@@ -81,6 +81,7 @@ python main.py
 | `--mr` | Apply a metamorphic relation alongside the normal run | `--mr 4` |
 | `--mr-only` | Skip base LLM call and generate followup only (requires `--mr`) | `--mr 4 --mr-only` |
 | `--repeats` | Generate each source/followup prompt multiple times for prompt variability analysis | `--repeats 5` |
+| `--resume` | Continue an interrupted run by skipping existing results that already contain required code blocks | `--resume` |
 
 **Run with a metamorphic relation**
 ```powershell
@@ -95,6 +96,9 @@ python main.py --models deepseek --n 5 --mr 4 --mr-only
 
 # Run the same source prompt and MR prompt 5 times, then compare variability
 python main.py --models deepseek --n 5 --mr 4 --repeats 5 --run-tests
+
+# Resume an interrupted run without regenerating completed question IDs
+python main.py --models deepseek --n 50 --mr 4 --repeats 5 --resume
 ```
 
 **Test the responses**
@@ -104,8 +108,11 @@ python runtests.py --results results\google_gemma-2-2b-it\base.json --n 5
 python runtests.py --results results\google_gemma-2-2b-it\base.json --stdout
 python runtests.py --results results\google_gemma-2-2b-it\base.json --debug
 python runtests.py --results results\google_gemma-2-2b-it\mr-04-persona_role_prompting.json --followup-only
+python runtests.py --results results\google_gemma-2-2b-it\mr-04-persona_role_prompting.json --csv results\google_gemma-2-2b-it\mr-04-persona_role_prompting.metrics.csv
 ```
 Replace `results\<model>\<file>.json` with your file.
+
+Generation results are saved after each completed problem, so interrupted runs retain partial progress. Use `--resume` to load the existing result file and skip entries that already contain extractable code blocks. Base runs require a source code block, MR runs require both source and followup code blocks, and MR-only runs require a followup code block.
 
 ---
 ## Output

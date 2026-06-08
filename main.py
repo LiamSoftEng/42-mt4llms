@@ -83,6 +83,11 @@ def parse_args():
         default=1,
         help="Generate each source/followup prompt this many times to measure prompt variability",
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Continue from an existing results file by skipping completed question IDs",
+    )
     return parser.parse_args()
 
 def main() -> int:
@@ -107,6 +112,7 @@ def main() -> int:
         relation_id=args.mr,
         mr_only=args.mr_only,
         prompt_repeats=args.repeats,
+        resume=args.resume,
     )
     runner.run()
 
