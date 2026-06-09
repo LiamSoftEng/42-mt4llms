@@ -40,8 +40,8 @@ GROK_MODEL = "openai/gpt-oss-120b"
 # GROK_MODEL = "qwen/qwen3-32b"
 
 # Generation params (TODO: adjust as needed)
-MAX_TOKENS = 4096
-TEMPERATURE = 0.2  # Deterministic outputs for reproducibility
+MAX_TOKENS = 8192
+TEMPERATURE = 0  # Deterministic outputs for reproducibility
 
 # Dataset
 LCB_DATASET = "bzantium/livecodebench"
