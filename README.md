@@ -87,7 +87,7 @@ python config\run_config.example.py
 | `--resume` | Continue an interrupted run by skipping existing results that already contain required code blocks | `--resume` |
 
 **Run from a config file**
-Use [config/run_config.example.py](/C:/Documents/Github/700/42-mt4llms/config/run_config.example.py) as the template. Empty values are ignored: `None`, `""`, and `[]` mean that flag is not applied. Boolean flags are included only when set to `True`.
+Use [config/run_config.example.py](/42-mt4llms/config/run_config.example.py) as the template. Empty values are ignored: `None`, `""`, and `[]` mean that flag is not applied. Boolean flags are included only when set to `True`.
 
 **Run with a metamorphic relation**
 ```powershell
