@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 from metamorphic.relations_list import RELATIONS
-from config.settings import GROK_MODEL
+from config.settings import GROK_MODEL, DEEPSEEK_MODEL
 from evaluation.runner import build_results_path
 
 
@@ -18,7 +18,7 @@ def _load_run_results(model_name: str, relation_name: str, relation_id: int) -> 
 
 
 def main() -> int:
-    base_results_path = build_results_path(GROK_MODEL, None, None)
+    base_results_path = build_results_path(DEEPSEEK_MODEL, None, None)
     model_dir = base_results_path.parent
     out_path = model_dir / "all_mrs.json"
     combined_results: list[dict] = []
@@ -31,7 +31,7 @@ def main() -> int:
                 sys.executable,
                 "main.py",
                 "--models",
-                "grok",
+                "deepseek",
                 "--n",
                 "1",
                 "--mr",
@@ -42,7 +42,7 @@ def main() -> int:
         if result.returncode != 0:
             print(f"MR {mr_id} failed with exit code {result.returncode}")
             return result.returncode
-        run_results = _load_run_results(GROK_MODEL, mr_name, mr_id)
+        run_results = _load_run_results(DEEPSEEK_MODEL, mr_name, mr_id)
         if run_results is None:
             return 1
         combined_results.extend(run_results)

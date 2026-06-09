@@ -20,7 +20,8 @@ GROK_API_KEY = os.getenv("GROK_API_KEY")
 CLAUDE_MODEL = "claude-sonnet-4-6"
 OPENAI_MODEL = "gpt-5-nano"
 GEMINI_MODEL = "gemini-2.5-flash"
-DEEPSEEK_MODEL = "minimaxai/minimax-m2.7"
+DEEPSEEK_MODEL = "google/gemma-2-2b-it"
+# DEEPSEEK_MODEL = "minimaxai/minimax-m2.7"
 CODE_EMBEDDING_MODEL = "Salesforce/codet5p-220m"
 CODE_TOKENIZER_MODEL = "Salesforce/codet5-base"
 
