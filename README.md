@@ -1,201 +1,295 @@
-# LLM MT Pipeline
-Run LiveCodeBench problems through multiple LLMs, capture source and followup outputs, and evaluate with metamorphic relations and test harnesses.
----
-## Setup
+# LLM Metamorphic Testing Pipeline
+
+This project runs LiveCodeBench problems through supported LLMs, applies optional metamorphic relations (MRs), executes the generated Python code against test cases, and measures code variability across repeated generations.
+
+## Quick Start
+
+### 1. Set up the environment
+
 ```powershell
 python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
 copy .env.example .env
 ```
-Then open `.env` and fill in your keys.
----
-## File Structure
-```
-42-mt4llms/
-├── config/settings.py
-├── data/
-│   ├── loader.py
-│   └── decoder.py
-├── llms/
-│   ├── base.py
-│   ├── __init__.py
-│   ├── claude_model.py
-│   ├── openai_model.py
-│   ├── gemini_model.py
-│   ├── deepseek_model.py
-│   └── grok_model.py
-├── evaluation/
-│   ├── runner.py
-│   ├── executor.py
-│   ├── metrics.py
-│   └── harness/
-│       ├── stdin.py
-│       └── functional.py
-├── metamorphic/
-│   ├── __init__.py
-│   ├── relations_list.py
-│   └── relations/
-│       ├── __init__.py
-│       ├── base_mr.py
-│       └── mrs.py
-├── explore_dataset.py
-├── main.py
-├── runtests.py
-└── results/
-  ├── <model>/
-  │   ├── base.json
-  │   ├── base.tests.log
-  │   ├── mr-04-persona_role_prompting.json
-  │   ├── mr-04-persona_role_prompting.tests.log
-  │   ├── all_mrs.json
-  │   └── all_mrs.tests.log
-  └── dataset_preview.json
-```
----
-## Usage
-**Explore the dataset (no API calls, run this first, downloads/caches the data)**
+
+Add the API keys for the providers you intend to use to `.env`. Model names, generation settings, embedding models, result paths, and cost rates are configured in `config/settings.py`.
+
+### 2. Check the dataset
+
 ```powershell
 python explore_dataset.py
 ```
-**Run a model**
+
+The LiveCodeBench dataset is downloaded and cached on first use.
+
+### 3. Run a small experiment
+
 ```powershell
-# 5 samples, DeepSeek only
-python main.py --models deepseek --n 5
-# Only problems from 2024 onwards (dates in yyyy-mm-dd)
-python main.py --models deepseek --after 2024-01-01
-# Combine filters
-python main.py --models grok --after 2025-01-01 --n 10
-# Combine filters and run tests
-python main.py --models grok --after 2025-01-01 --n 10 --run-tests
-# Multiple models
-python main.py --models claude openai --n 5
-# All models, full dataset
-python main.py
-
-# Run from a Python config file
-python config\run_config.example.py
-```
-| Flag | Description | Example |
-|---|---|---|
-| `--models` | One or more of: `claude` `openai` `gemini` `deepseek` `grok` | `--models deepseek claude` |
-| `--n` | Limit number of samples | `--n 10` |
-| `--after` | Only problems on or after this date | `--after 2024-01-01` |
-| `--mr` | Apply a metamorphic relation alongside the normal run | `--mr 4` |
-| `--mr-only` | Skip base LLM call and generate followup only (requires `--mr`) | `--mr 4 --mr-only` |
-| `--repeats` | Generate each source/followup prompt multiple times for prompt variability analysis | `--repeats 5` |
-| `--resume` | Continue an interrupted run by skipping existing results that already contain required code blocks | `--resume` |
-
-**Run from a config file**
-Use [config/run_config.example.py](/42-mt4llms/config/run_config.example.py) as the template. Empty values are ignored: `None`, `""`, and `[]` mean that flag is not applied. Boolean flags are included only when set to `True`.
-
-**Run with a metamorphic relation**
-```powershell
-# Run with MR0 (control - prompt unchanged, use to verify pipeline)
-python main.py --models deepseek --n 5 --mr 0
-
-# Run with MR4 (persona role prompting)
-python main.py --models deepseek --n 5 --mr 4
-
-# Run MR4 without base generation
-python main.py --models deepseek --n 5 --mr 4 --mr-only
-
-# Run the same source prompt and MR prompt 5 times, then compare variability
-python main.py --models deepseek --n 5 --mr 4 --repeats 5 --run-tests
-
-# Resume an interrupted run without regenerating completed question IDs
-python main.py --models deepseek --n 50 --mr 4 --repeats 5 --resume
+python main.py --models openai --n 5 --mr 1 --repeats 3 --run-tests
 ```
 
-**Test the responses**
-```powershell
-python runtests.py --results results\google_gemma-2-2b-it\base.json
-python runtests.py --results results\google_gemma-2-2b-it\base.json --n 5
-python runtests.py --results results\google_gemma-2-2b-it\base.json --stdout
-python runtests.py --results results\google_gemma-2-2b-it\base.json --debug
-python runtests.py --results results\google_gemma-2-2b-it\mr-04-persona_role_prompting.json --followup-only
-python runtests.py --results results\google_gemma-2-2b-it\mr-04-persona_role_prompting.json --csv results\google_gemma-2-2b-it\mr-04-persona_role_prompting.metrics.csv
-```
-Replace `results\<model>\<file>.json` with your file.
+This command:
 
-Generation results are saved after each completed problem, so interrupted runs retain partial progress. Use `--resume` to load the existing result file and skip entries that already contain extractable code blocks. Base runs require a source code block, MR runs require both source and followup code blocks, and MR-only runs require a followup code block.
+1. Loads five problems.
+2. Generates each original prompt three times.
+3. Applies MR1 and generates each transformed prompt three times.
+4. Saves generation results after every problem.
+5. Runs the generated code against the available tests.
+6. Writes metrics and an HTML report.
 
----
-## Output
-Each `main.py` run saves a JSON file under `results\<model>\`.
-Base runs use `base.json`; MR runs use `mr-<id>-<name>.json`.
-```json
-{
-  "question_id": "1873_A",
-  "question_title": "A. Short Sort",
-  "difficulty": "easy",
-  "platform": "codeforces",
-  "model_name": "google/gemma-2-2b-it",
-  "instruction_prefix": "...",
-  "instruction_suffix": "...",
-  "question": "...",
-  "response": "...",
-  "public_test_cases": "...",
-  "private_test_cases": "...",
-  "metadata": "...",
-  "error": "",
-  "relation": "persona_role_prompting",
-  "followup_instruction_prefix": "...",
-  "followup_instruction_suffix": "...",
-  "followup_question": "...",
-  "followup_response": "...",
-  "followup_error": ""
+## Python Run Configuration
+
+For repeatable experiments, edit `CONFIG` in `config/run_config.py`:
+
+```python
+CONFIG = {
+    "models": ["openai"],
+    "n": 5,
+    "after": "2025-04-01",
+    "mr": 1,
+    "mr_only": False,
+    "run_tests": True,
+    "repeats": 3,
+    "resume": True,
 }
 ```
-Followup fields are only populated when `--mr` is used. If a model call fails, `error` will contain the message and `response` will be empty; the pipeline continues to the next sample.
 
-`runtests.py` prints per-test verdicts, MR holds/violations, and a metrics summary table using NCLOC, cyclomatic complexity (radon), code similarity, and prompt variability:
-```
-  [source]   Test 1 [functional]: PASS
-  [followup] Test 1 [functional]: PASS
-  MR [dead_context]: HOLDS
+Run it directly:
 
-  ID               Src NCLOC   Src CC  Flw NCLOC   Flw CC  CodeSim  SrcDist   SrcStd  FlwDist   FlwStd   dNCLOC      dCC  Var>Src       MR
-  1873_A                 14     1.00         13     1.00   0.9412   0.0321   0.0044   0.0618   0.0120       -1    +0.00      YES    HOLDS
+```powershell
+python config\run_config.py
 ```
 
-Prompt variability is measured from repeated generations. `CodeSim` compares the first source and first followup code. `SrcDist` and `FlwDist` are mean pairwise embedding distances across repeated code samples, computed as `1 - CodeSim`. `SrcStd` and `FlwStd` are the standard deviations of those pairwise distances. `Var>Src` is `YES` when the MR followup prompt has a higher mean distance than the original source prompt.
+Use `None`, `""`, or `[]` to omit a value. Boolean flags are included only when set to `True`. A key can also be commented out.
 
----
+## Command-Line Usage
+
+```powershell
+python main.py [options]
+```
+
+| Option | Description |
+|---|---|
+| `--models MODEL ...` | Models to run: `claude`, `openai`, `gemini`, `deepseek`, or `grok`. Defaults to all. |
+| `--n N` | Limit the number of dataset problems. |
+| `--after YYYY-MM-DD` | Include problems on or after the specified date. |
+| `--mr ID` | Apply the metamorphic relation with the specified ID. |
+| `--mr-only` | Reuse saved base responses and generate only MR follow-up responses. Requires `--mr`. |
+| `--repeats N` | Generate each applicable prompt N times. Defaults to `1`. |
+| `--resume` | Skip existing entries that already contain the required code blocks. |
+| `--run-tests` | Evaluate results after generation and write split outputs plus an HTML report. |
+
+### Common examples
+
+Run a base experiment:
+
+```powershell
+python main.py --models deepseek --n 5
+```
+
+Run an MR experiment:
+
+```powershell
+python main.py --models openai --n 10 --mr 4
+```
+
+Measure source and MR prompt variability:
+
+```powershell
+python main.py --models openai --n 10 --mr 4 --repeats 5 --run-tests
+```
+
+Generate only follow-up responses using previously saved base results:
+
+```powershell
+python main.py --models openai --n 10 --mr 4 --mr-only
+```
+
+Resume an interrupted experiment:
+
+```powershell
+python main.py --models openai --n 50 --mr 4 --repeats 5 --resume
+```
+
+## Repeats and LLM Calls
+
+The number of calls depends on the number of problems, prompts, repeats, and models.
+
+```text
+Base run:
+calls = problems x repeats x models
+
+MR run:
+calls = problems x repeats x 2 prompts x models
+
+MR-only run:
+calls = problems x repeats x models
+```
+
+For example, five problems with one model, MR4, and three repeats produce:
+
+```text
+5 problems x 2 prompts x 3 repeats = 30 LLM calls
+```
+
+`TEMPERATURE` is currently configured in `config/settings.py`. A value of `0` reduces randomness, although provider output may still vary.
+
+## Resume Behavior
+
+Results are saved after each completed problem. If a run stops, add `--resume` to continue from the existing result file.
+
+An entry is skipped only when the required response contains an extractable `python` code block:
+
+| Run type | Required code block |
+|---|---|
+| Base | Source response |
+| MR | Source and follow-up responses |
+| MR-only | Follow-up response |
+
+Entries without the required code are generated again. The new entry replaces the incomplete entry, preventing duplicate question IDs.
+
+## Testing Existing Results
+
+Use `runtests.py` when generation has already completed:
+
+```powershell
+python runtests.py --results results\<model>\<result-file>.json --stdout
+```
+
+Available options:
+
+| Option | Description |
+|---|---|
+| `--results PATH` | Input result JSON file. Required. |
+| `--n N` | Test only the first N entries. |
+| `--stdout` | Print output while also writing the test log. |
+| `--debug` | Print extracted code and generated execution scripts. |
+| `--out PATH` | Set the test log path. |
+| `--csv PATH` | Export the metrics table to CSV. |
+| `--followup-only` | Test the follow-up response as the primary response. |
+| `--write-outputs` | Write split content/results files and generate an HTML report. |
+
+Examples:
+
+```powershell
+python runtests.py --results results\gpt-5-nano\base.json --stdout
+
+python runtests.py `
+  --results results\gpt-5-nano\mr-04-persona_role_prompting.json `
+  --csv results\gpt-5-nano\mr-04.metrics.csv `
+  --write-outputs `
+  --stdout
+```
+
+`main.py --run-tests` automatically invokes `runtests.py` with `--write-outputs`.
+
+## Variability Metrics
+
+Repeated code samples are compared using CodeT5 embeddings and cosine similarity.
+
+```text
+distance = 1 - cosine similarity
+```
+
+| Metric | Meaning |
+|---|---|
+| `CodeSim` | Similarity between the first source and first follow-up code samples. Higher means more similar. |
+| `SrcDist` | Mean pairwise distance among repeated source generations. |
+| `SrcStd` | Standard deviation of source pairwise distances. |
+| `FlwDist` | Mean pairwise distance among repeated follow-up generations. |
+| `FlwStd` | Standard deviation of follow-up pairwise distances. |
+| `Var>Src` | `YES` when `FlwDist` is greater than `SrcDist`. |
+| `NCLOC` | Non-comment logical lines of code. |
+| `CC` | Average cyclomatic complexity. |
+
+Interpretation:
+
+- Higher mean distance means the prompt produced more varied code on average.
+- Higher standard deviation means the amount of variation was less consistent.
+- With two generated samples there is only one pairwise distance, so `StdDist` is `0.0`. Use at least three repeats for a meaningful standard deviation.
+- Missing or unextractable code blocks are excluded from variability calculations.
+
+## Result Files
+
+Raw generation results are saved under:
+
+```text
+results/<model>/base.json
+results/<model>/mr-<id>-<relation>.json
+```
+
+The model directory uses the configured model name from `config/settings.py`, sanitized for use as a folder name. For example, the `openai` CLI alias currently writes under `results/gpt-5-nano/`.
+
+When `--write-outputs` is used, additional files are created:
+
+```text
+results/<model>/
+|-- base/
+|   |-- base.json
+|   `-- base.results.json
+|-- mr-<id>-<relation>/
+|   |-- followup.json
+|   `-- followup.results.json
+|-- base.html
+`-- mr-<id>-<relation>.html
+```
+
+Test logs default to the input result filename with `.tests.log` appended. CSV output is written only when `--csv` is supplied.
+
 ## Metamorphic Relations
-Relations are defined in `metamorphic/relations/mrs.py` and registered in `metamorphic/relations_list.py`.
 
-Each MR class implements:
-- `name` - identifier string used in results
-- `transform(...)` - returns transformed question or instruction
-- `verify(source_passed, followup_passed)` - returns whether the MR holds
+| ID | Name | Target | Transformation |
+|---:|---|---|---|
+| 0 | `do_nothing` | Question | Leaves the prompt unchanged as a control. |
+| 1 | `dead_context` | Question | Adds an irrelevant sentence. |
+| 2 | `constraint_redundant_spec` | Instruction | Adds a redundant language constraint. |
+| 3 | `format_structural_equivalence` | Question | Converts the prompt into a structured list. |
+| 4 | `persona_role_prompting` | Instruction | Adds a software-engineer persona. |
+| 5 | `context_extraneous_narrative` | Question | Adds irrelevant narrative context. |
+| 6 | `polarity_negative_formulation` | Instruction | Rewrites a return constraint in negative form. |
+| 7 | `identifier_explicit_naming` | Instruction | Adds explicit variable-naming constraints. |
+| 8 | `output_formatting_constraint` | Instruction | Adds raw-code output constraints. |
+| 9 | `hint_trivial_algorithm` | Instruction | Adds a simple algorithmic hint. |
+| 10 | `order_requirement_permutation` | Question | Reorders independent constraints. |
+| 11 | `verbosity_lexical_expansion` | Question | Adds short definitions for common terms. |
 
-To add a new MR, implement it in `metamorphic/relations/mrs.py` and register it in `metamorphic/relations_list.py`.
+Relations are implemented in `metamorphic/relations/mrs.py` and registered in `metamorphic/relations_list.py`.
 
-| ID | Name | Target | Description |
-|---|---|---|---|
-| 0 | `do_nothing` | question | Control relation that returns the original prompt unchanged. |
-| 1 | `dead_context` | question | Insert an irrelevant sentence into the prompt. |
-| 2 | `constraint_redundant_spec` | instruction | Inject a redundant language constraint already implied by syntax. |
-| 3 | `format_structural_equivalence` | question | Convert the prompt into a structured bulleted list. |
-| 4 | `persona_role_prompting` | instruction | Prepend a persona to the prompt. |
-| 5 | `context_extraneous_narrative` | question | Inject an irrelevant backstory without changing requirements. |
-| 6 | `polarity_negative_formulation` | instruction | Rewrite a return constraint into an equivalent negative form. |
-| 7 | `identifier_explicit_naming` | instruction | Add explicit internal naming constraints for variables. |
-| 8 | `output_formatting_constraint` | instruction | Add constraints about outputting raw code only. |
-| 9 | `hint_trivial_algorithm` | instruction | Add a trivial algorithmic suggestion. |
-| 10 | `order_requirement_permutation` | question | Permute the order of independent constraints. |
-| 11 | `verbosity_lexical_expansion` | question | Add brief definitions for common programming terms. |
+To add a relation:
 
----
+1. Add a class derived from `BaseMR`.
+2. Set its `target` to `question` or `instruction`.
+3. Implement `name` and `transform(...)`.
+4. Register it in `metamorphic/relations_list.py`.
+
+## Project Structure
+
+```text
+config/
+  run_config.py          Runnable experiment configuration
+  settings.py            Models, generation settings, paths, and costs
+data/
+  loader.py              LiveCodeBench loading and prompt construction
+  decoder.py             Private test-case decoding
+evaluation/
+  runner.py              Generation pipeline and partial-result saving
+  executor.py            Code extraction and test dispatch
+  metrics.py             Complexity, similarity, and variability metrics
+  results_writer.py      Split JSON output and report orchestration
+  report.py              HTML report generation
+  harness/               Functional and stdin execution harnesses
+llms/                    Provider-specific model clients
+metamorphic/             MR registry and implementations
+results/                 Generated responses, metrics, logs, and reports
+main.py                  Main generation CLI
+runtests.py              Evaluation and export CLI
+run_all_mrs.py           Runs all registered MRs
+```
+
 ## Notes
-- The dataset downloads once (~2GB) and is cached at `C:\Users\<you>\.cache\huggingface\`
-- Testing uses private test cases decoded from base64+zlib+pickle format
-- Start with `--n 5` to verify everything works before running the full dataset
-- Re-activate the virtual environment each session with `venv\Scripts\activate`
 
-## Cutoff date samples
-- After Feb 2025: 131
-- After Mar 2025: 80
-- After Apr 2025: 12
-- After May 2025: 0
+- Start with `--n 5` before running large experiments.
+- Private tests are decoded from the LiveCodeBench data at evaluation time.
+- The embedding model is downloaded on first variability analysis.
+- Update cost rates in `config/settings.py` when provider pricing changes.
