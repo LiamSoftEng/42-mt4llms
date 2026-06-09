@@ -21,4 +21,16 @@ class GeminiModel(BaseLLM):
                 temperature=TEMPERATURE,
             ),
         )
+        usage = getattr(response, "usage_metadata", None)
+        if usage is not None:
+            prompt_tokens = getattr(usage, "prompt_token_count", None)
+            completion_tokens = getattr(usage, "candidates_token_count", None)
+            total_tokens = getattr(usage, "total_token_count", None)
+            self._set_last_usage({
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+            })
+        else:
+            self._set_last_usage(None)
         return response.text

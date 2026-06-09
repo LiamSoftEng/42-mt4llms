@@ -22,11 +22,14 @@ class DeepSeekModel(BaseLLM):
             temperature=TEMPERATURE,
             top_p=0.7,
             max_tokens=MAX_TOKENS,
-            stream=True,
         )
-
-        response = ""
-        for chunk in completion:
-            if chunk.choices and chunk.choices[0].delta.content is not None:
-                response += chunk.choices[0].delta.content
-        return response
+        usage = getattr(completion, "usage", None)
+        if usage is not None:
+            self._set_last_usage({
+                "prompt_tokens": getattr(usage, "prompt_tokens", None),
+                "completion_tokens": getattr(usage, "completion_tokens", None),
+                "total_tokens": getattr(usage, "total_tokens", None),
+            })
+        else:
+            self._set_last_usage(None)
+        return completion.choices[0].message.content

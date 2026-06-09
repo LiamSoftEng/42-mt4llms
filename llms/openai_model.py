@@ -13,10 +13,25 @@ class OpenAIModel(BaseLLM):
         return self._model_name
 
     def generate(self, prompt: str) -> str:
-        response = self.client.chat.completions.create(
-            model=self._model_name,
-            max_tokens=MAX_TOKENS,
-            temperature=TEMPERATURE,
-            messages=[{"role": "user", "content": prompt}],
-        )
+        request = {
+            "model": self._model_name,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if "gpt-5-nano" not in self._model_name:
+            request["temperature"] = TEMPERATURE
+        if self._model_name.startswith("gpt-5"):
+            # gpt-5 models require max_completion_tokens instead of max_tokens.
+            request["max_completion_tokens"] = MAX_TOKENS
+        else:
+            request["max_tokens"] = MAX_TOKENS
+        response = self.client.chat.completions.create(**request)
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            self._set_last_usage({
+                "prompt_tokens": getattr(usage, "prompt_tokens", None),
+                "completion_tokens": getattr(usage, "completion_tokens", None),
+                "total_tokens": getattr(usage, "total_tokens", None),
+            })
+        else:
+            self._set_last_usage(None)
         return response.choices[0].message.content
