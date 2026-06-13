@@ -2,7 +2,7 @@
 Runnable pipeline configuration.
 
 Run the pipeline:
-    python config/run_config.example.py
+    python config/run_config.py
 """
 
 import subprocess
@@ -11,10 +11,10 @@ from pathlib import Path
 
 
 CONFIG = {
-    "models": ["grok"],
+    "models": ["openai"],
     "n": 5,
     "after": "2025-04-01",
-    "mr": 2,
+    "mr": 1,
     "mr_only": False,
     "run_tests": True,
     "repeats": 3,

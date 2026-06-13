@@ -25,20 +25,18 @@ def get_relation(mr_id: int):
     cls = getattr(module, entry["class"])
     return cls()
 
-
 def _run_tests(model_name: str, relation_name: str | None, relation_id: int | None, followup_only: bool) -> int:
     results_path = build_results_path(model_name, relation_name, relation_id)
     if not results_path.exists():
         print(f"Results file not found for tests: {results_path}")
         return 1
-    cmd = [sys.executable, "runtests.py", "--results", str(results_path)]
+    cmd = [sys.executable, "runtests.py", "--results", str(results_path), "--write-outputs"]
     if followup_only:
         cmd.append("--followup-only")
     result = subprocess.run(cmd, check=False)
     if result.returncode != 0:
         print(f"Tests failed for {model_name} (exit {result.returncode})")
     return result.returncode
-
 
 def parse_args():
     parser = argparse.ArgumentParser(description="LLM MT Pipeline")

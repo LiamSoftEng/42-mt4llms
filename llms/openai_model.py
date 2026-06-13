@@ -17,11 +17,12 @@ class OpenAIModel(BaseLLM):
             "model": self._model_name,
             "messages": [{"role": "user", "content": prompt}],
         }
-        if "gpt-5-nano" not in self._model_name:
-            request["temperature"] = TEMPERATURE
+        # if "gpt-5-nano" not in self._model_name:
+            # request["temperature"] = TEMPERATURE
         if self._model_name.startswith("gpt-5"):
             # gpt-5 models require max_completion_tokens instead of max_tokens.
             request["max_completion_tokens"] = MAX_TOKENS
+            request["reasoning_effort"] = "low"  # Optional, but can help reduce costs for simpler tasks
         else:
             request["max_tokens"] = MAX_TOKENS
         response = self.client.chat.completions.create(**request)
