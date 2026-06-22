@@ -11,11 +11,17 @@ import warnings
 from radon.raw import analyze
 from radon.complexity import cc_visit
 
+from evaluation.executor import extract_code
+
 
 def _codesim_debug(message: str) -> None:
     if os.getenv("CODE_SIM_DEBUG") == "1":
         print(f"  [codesim] {message}")
 
+
+# ---------------------------------------------------------------------------
+# Embedding backend
+# ---------------------------------------------------------------------------
 
 @lru_cache(maxsize=1)
 def _get_code_embedder():
@@ -54,6 +60,7 @@ def _get_transformer_encoder():
 
     hf_logging.set_verbosity_error()
     hf_logging.disable_progress_bar()
+
     tokenizer_model = CODE_TOKENIZER_MODEL or CODE_EMBEDDING_MODEL
     config = AutoConfig.from_pretrained(CODE_EMBEDDING_MODEL)
     try:
@@ -92,6 +99,10 @@ def _encode_with_transformers(code_a: str, code_b: str):
     return pooled[0], pooled[1]
 
 
+# ---------------------------------------------------------------------------
+# Similarity / distance
+# ---------------------------------------------------------------------------
+
 def compute_code_similarity(code_a: str | None, code_b: str | None) -> float | None:
     """
     Compute cosine similarity between two code snippets using embeddings.
@@ -102,7 +113,6 @@ def compute_code_similarity(code_a: str | None, code_b: str | None) -> float | N
     try:
         emb_a, emb_b = _encode_with_transformers(code_a, code_b)
         import torch
-
         score = torch.nn.functional.cosine_similarity(emb_a, emb_b, dim=0).item()
         return float(score)
     except Exception as exc:
@@ -160,9 +170,13 @@ def compute_pairwise_code_variability(codes: list[str | None]) -> dict:
     }
 
 
+# ---------------------------------------------------------------------------
+# Static code metrics
+# ---------------------------------------------------------------------------
+
 def compute_ncloc(code: str) -> int:
     """
-    Non-comment lines of code - blank lines and comment lines excluded.
+    Non-comment lines of code — blank lines and comment lines excluded.
     Uses radon's lloc (logical lines of code).
     Returns -1 if code cannot be parsed.
     """
@@ -189,7 +203,7 @@ def compute_cyclomatic_complexity(code: str) -> float:
 
 def compute_metrics(code: str | None) -> dict:
     """
-    Compute all metrics for a code block.
+    Compute static metrics (NCLOC, CCN) for a code block.
     Returns a dict with ncloc and cyclomatic_complexity.
     """
     if not code:
@@ -198,3 +212,95 @@ def compute_metrics(code: str | None) -> dict:
         "ncloc": compute_ncloc(code),
         "cyclomatic_complexity": compute_cyclomatic_complexity(code),
     }
+
+
+# ---------------------------------------------------------------------------
+# Extraction
+# ---------------------------------------------------------------------------
+
+def compute_extractable_code(response: str | None) -> bool:
+    """
+    Return True if a Python code block can be extracted from the response.
+    """
+    if not response:
+        return False
+    return extract_code(response) is not None
+
+
+# ---------------------------------------------------------------------------
+# Test pass metrics
+# ---------------------------------------------------------------------------
+
+def compute_passes_tests(test_results: list[tuple]) -> bool | None:
+    """
+    Return True if ALL test cases passed, False if any failed.
+    Each element of test_results is a tuple whose first element is a bool.
+    Returns None when the list is empty.
+    """
+    if not test_results:
+        return None
+    return all(result[0] for result in test_results)
+
+
+def compute_passes_same_tests(
+    source_results: list[tuple],
+    followup_results: list[tuple],
+) -> bool | None:
+    """
+    Return True if the followup passes every test that the source passed.
+
+    A followup that regresses on any individually-passing source test returns
+    False, even if its overall pass count is the same or higher.
+    Returns None when either list is empty or lengths differ.
+    """
+    if not source_results or not followup_results:
+        return None
+    if len(source_results) != len(followup_results):
+        return None
+    for (src_passed, *_), (flw_passed, *_) in zip(source_results, followup_results):
+        if src_passed and not flw_passed:
+            return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Token metrics
+# ---------------------------------------------------------------------------
+
+def compute_token_count(usage: dict | None) -> dict:
+    """
+    Extract token counts from a usage dict.
+    Returns prompt, completion, total, and thinking token counts.
+    All values are None when usage is not available.
+    """
+    if not usage:
+        return {
+            "prompt_tokens": None,
+            "completion_tokens": None,
+            "total_tokens": None,
+            "thinking_tokens": None,
+        }
+    return {
+        "prompt_tokens": usage.get("prompt_tokens"),
+        "completion_tokens": usage.get("completion_tokens"),
+        "total_tokens": usage.get("total_tokens"),
+        "thinking_tokens": usage.get("thinking_tokens"),
+    }
+
+
+def compute_token_efficiency(usage: dict | None) -> float | None:
+    """
+    Token efficiency = completion_tokens / thinking_tokens.
+
+    Measures how many output tokens were produced per thinking/reasoning token
+    spent. A higher value means more output relative to internal reasoning cost.
+    Returns None when thinking tokens are unavailable or zero (non-reasoning
+    models, or models that didn't use extended thinking on this call).
+    """
+    if not usage:
+        return None
+    thinking = usage.get("thinking_tokens")
+    completion = usage.get("completion_tokens")
+    if not thinking or not completion:
+        return None
+    return round(completion / thinking, 6)
