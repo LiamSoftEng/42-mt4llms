@@ -1,9 +1,9 @@
 """
 Runs public test cases against model responses.
 """
-
 import json
 import re
+import time
 
 
 def extract_code(response: str) -> str | None:
@@ -36,28 +36,61 @@ def get_func_name(entry: dict) -> str | None:
     return raw.get("func_name", None)
 
 
-def run_test(code: str, test: dict, func_name: str | None, debug: bool = False) -> tuple[bool, str, str]:
+def run_test(
+    code: str,
+    test: dict,
+    func_name: str | None,
+    debug: bool = False,
+) -> tuple[bool, str, str, float]:
     """
     Run a single test case against the extracted code.
-    Returns (passed, actual_output, error).
+
+    Returns (passed, actual_output, error, elapsed_seconds).
+    elapsed_seconds is the wall-clock time spent inside the harness.
     """
     testtype = test.get("testtype", "stdin")
     inp = test.get("input", "")
     expected = test.get("output", "")
 
+    t0 = time.perf_counter()
+
     if testtype == "stdin":
         from evaluation.harness.stdin import run, check
         actual, error = run(code, inp)
         passed = check(actual, expected) if not error else False
-        return passed, actual, error
 
     elif testtype == "functional":
         if not func_name:
-            return False, "", "No func_name in metadata"
+            elapsed = time.perf_counter() - t0
+            return False, "", "No func_name in metadata", elapsed
         from evaluation.harness.functional import run, check
         actual, error = run(code, func_name, inp, debug=debug)
         passed = check(actual, expected) if not error else False
-        return passed, actual, error
 
     else:
-        return False, "", f"Unknown testtype: {testtype}"
+        elapsed = time.perf_counter() - t0
+        return False, "", f"Unknown testtype: {testtype}", elapsed
+
+    elapsed = time.perf_counter() - t0
+    return passed, actual, error, elapsed
+
+
+def compute_passes_same_tests(
+    source_results: list[tuple[bool, str, str, float]],
+    followup_results: list[tuple[bool, str, str, float]],
+) -> bool | None:
+    """
+    Return True if the followup code passes every test that the source code passed.
+
+    This is stricter than just checking overall pass rate — a followup that passes
+    *different* tests would still return False. Returns None when either list is empty.
+    """
+    if not source_results or not followup_results:
+        return None
+    if len(source_results) != len(followup_results):
+        return None
+
+    for (src_passed, *_), (flw_passed, *_) in zip(source_results, followup_results):
+        if src_passed and not flw_passed:
+            return False
+    return True

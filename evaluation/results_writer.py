@@ -28,7 +28,8 @@ def write_base_content(results: list[dict], model_name: str, results_dir: str) -
         "relation", "followup_instruction_prefix", "followup_instruction_suffix",
         "followup_question", "followup_response", "followup_response_samples",
         "followup_error", "followup_prompt_tokens", "followup_completion_tokens",
-        "followup_total_tokens",
+        "followup_total_tokens", "followup_thinking_tokens", "followup_token_efficiency",
+        "followup_llm_call_time",
     }
     out_dir = Path(results_dir) / _safe_name(model_name) / "base"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -44,7 +45,13 @@ def write_base_content(results: list[dict], model_name: str, results_dir: str) -
     return out_path
 
 
-def write_followup_content(results: list[dict], model_name: str, relation_name: str, relation_id: int | None, results_dir: str) -> Path:
+def write_followup_content(
+    results: list[dict],
+    model_name: str,
+    relation_name: str,
+    relation_id: int | None,
+    results_dir: str,
+) -> Path:
     """
     Write followup LLM content to results/<model>/mr-XX-name/followup.json.
     Keeps question context + followup fields only.
@@ -55,7 +62,8 @@ def write_followup_content(results: list[dict], model_name: str, relation_name: 
         "relation", "followup_instruction_prefix", "followup_instruction_suffix",
         "followup_question", "followup_response", "followup_response_samples",
         "followup_error", "followup_prompt_tokens", "followup_completion_tokens",
-        "followup_total_tokens",
+        "followup_total_tokens", "followup_thinking_tokens", "followup_token_efficiency",
+        "followup_llm_call_time",
     }
     folder = _mr_folder_name(relation_name, relation_id)
     out_dir = Path(results_dir) / _safe_name(model_name) / folder
@@ -98,58 +106,105 @@ def write_all_outputs(
     base_content_path = write_base_content(results, model_name, results_dir)
     followup_content_path = None
     if has_mr:
-        followup_content_path = write_followup_content(results, model_name, relation_name, relation_id, results_dir)
+        followup_content_path = write_followup_content(
+            results, model_name, relation_name, relation_id, results_dir
+        )
 
-    # Write results JSON
+    # ── Base results JSON ────────────────────────────────────────────────────
     base_results_path = base_content_path.parent / "base.results.json"
-
     base_rows = []
     for row in metric_rows:
+        src_var = row.get("source_variability") or {}
         base_rows.append({
             "question_id": row["id"],
             "question_title": row.get("question_title"),
             "difficulty": row.get("difficulty"),
             "platform": row.get("platform"),
-            "passed": row.get("source_passed"),
+
+            # Test pass metrics
+            "extractable_code": row.get("source_extractable"),
+            "passes_tests": row.get("source_passes_tests"),
+            "passed": row.get("source_passed"),          # legacy alias
             "tests_passed": row.get("tests_passed"),
             "tests_failed": row.get("tests_failed"),
             "tests_total": row.get("tests_total"),
+            "test_run_time": row.get("source_test_run_time"),
+
+            # Static code metrics
             "ncloc": row.get("source_ncloc"),
             "cyclomatic_complexity": row.get("source_cc"),
-            "mean_distance": (row.get("source_variability") or {}).get("mean_distance"),
-            "std_distance": (row.get("source_variability") or {}).get("std_distance"),
-            "n_pairs": (row.get("source_variability") or {}).get("n_pairs"),
+
+            # Variability
+            "mean_distance": src_var.get("mean_distance"),
+            "std_distance": src_var.get("std_distance"),
+            "n_pairs": src_var.get("n_pairs"),
+
+            # Token metrics
+            "prompt_tokens": row.get("source_prompt_tokens"),
+            "completion_tokens": row.get("source_completion_tokens"),
+            "total_tokens": row.get("source_total_tokens"),
+            "thinking_tokens": row.get("source_thinking_tokens"),
+            "token_efficiency": row.get("source_token_efficiency"),
+
+            # Timing
+            "llm_call_time": row.get("source_llm_call_time"),
         })
     write_results_json(base_rows, base_results_path)
 
+    # ── Followup results JSON ────────────────────────────────────────────────
     followup_results_path = None
     if has_mr:
         folder = _mr_folder_name(relation_name, relation_id)
-        followup_results_path = Path(results_dir) / _safe_name(model_name) / folder / "followup.results.json"
+        followup_results_path = (
+            Path(results_dir) / _safe_name(model_name) / folder / "followup.results.json"
+        )
         followup_rows = []
-        base_by_id = {r["id"]: r for r in metric_rows}
         for row in metric_rows:
-            if row.get("followup_ncloc") is not None:
-                followup_rows.append({
-                    "question_id": row["id"],
-                    "question_title": row.get("question_title"),
-                    "difficulty": row.get("difficulty"),
-                    "platform": row.get("platform"),
-                    "passed": row.get("followup_passed"),
-                    "tests_passed": row.get("followup_tests_passed"),
-                    "tests_failed": row.get("followup_tests_failed"),
-                    "tests_total": row.get("followup_tests_total"),
-                    "ncloc": row.get("followup_ncloc"),
-                    "cyclomatic_complexity": row.get("followup_cc"),
-                    "mean_distance": (row.get("followup_variability") or {}).get("mean_distance"),
-                    "std_distance": (row.get("followup_variability") or {}).get("std_distance"),
-                    "n_pairs": (row.get("followup_variability") or {}).get("n_pairs"),
-                    "mr_holds": row.get("mr_holds"),
-                    "code_sim": row.get("code_sim"),
-                })
+            if row.get("followup_ncloc") is None:
+                continue
+            flw_var = row.get("followup_variability") or {}
+            followup_rows.append({
+                "question_id": row["id"],
+                "question_title": row.get("question_title"),
+                "difficulty": row.get("difficulty"),
+                "platform": row.get("platform"),
+
+                # Test pass metrics
+                "extractable_code": row.get("followup_extractable"),
+                "passes_tests": row.get("followup_passes_tests"),
+                "passes_same_tests": row.get("passes_same_tests"),
+                "passed": row.get("followup_passed"),    # legacy alias
+                "tests_passed": row.get("followup_tests_passed"),
+                "tests_failed": row.get("followup_tests_failed"),
+                "tests_total": row.get("followup_tests_total"),
+                "test_run_time": row.get("followup_test_run_time"),
+
+                # Static code metrics
+                "ncloc": row.get("followup_ncloc"),
+                "cyclomatic_complexity": row.get("followup_cc"),
+
+                # Variability
+                "mean_distance": flw_var.get("mean_distance"),
+                "std_distance": flw_var.get("std_distance"),
+                "n_pairs": flw_var.get("n_pairs"),
+
+                # MR
+                "mr_holds": row.get("mr_holds"),
+                "code_sim": row.get("code_sim"),
+
+                # Token metrics
+                "prompt_tokens": row.get("followup_prompt_tokens"),
+                "completion_tokens": row.get("followup_completion_tokens"),
+                "total_tokens": row.get("followup_total_tokens"),
+                "thinking_tokens": row.get("followup_thinking_tokens"),
+                "token_efficiency": row.get("followup_token_efficiency"),
+
+                # Timing
+                "llm_call_time": row.get("followup_llm_call_time"),
+            })
         write_results_json(followup_rows, followup_results_path)
 
-    # Generate HTML report
+    # ── HTML report ──────────────────────────────────────────────────────────
     safe = _safe_name(model_name)
     if has_mr:
         folder = _mr_folder_name(relation_name, relation_id)

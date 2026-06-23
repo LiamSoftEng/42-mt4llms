@@ -10,6 +10,15 @@ class BaseLLM(ABC):
     def last_usage(self) -> dict | None:
         """Return the most recent token usage, if available."""
         return getattr(self, "_last_usage", None)
+    
+    @property
+    def last_call_time(self) -> float | None:
+        """Return wall-clock seconds for the most recent generate() call."""
+        return getattr(self, "_last_call_time", None)
+
+    def _set_last_call_time(self, elapsed: float) -> None:
+        """Store wall-clock duration of the most recent generate() call."""
+        self._last_call_time = elapsed
 
     def _set_last_usage(self, usage: dict | None) -> None:
         """Store token usage from the most recent request."""
