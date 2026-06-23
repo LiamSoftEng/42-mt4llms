@@ -1,30 +1,14 @@
 import json
 import time
-from pathlib import Path
 from dataclasses import dataclass, asdict, field
 from typing import List
+from pathlib import Path
 
 from llms.base import BaseLLM
 from data.loader import build_code_question, build_prompt, INSTRUCTION_PREFIX, INSTRUCTION_SUFFIX
 from evaluation.executor import extract_code
+from evaluation.paths import build_results_path
 from config.settings import RESULTS_DIR
-
-
-def _safe_name(model_name: str) -> str:
-    return model_name.replace("/", "_").replace(".", "-")
-
-
-def build_results_path(model_name: str, relation_name: str | None = None, relation_id: int | None = None) -> Path:
-    model_dir = Path(RESULTS_DIR) / _safe_name(model_name)
-    model_dir.mkdir(parents=True, exist_ok=True)
-    if relation_name:
-        if relation_id is not None:
-            filename = f"mr-{relation_id:02d}-{relation_name}.json"
-        else:
-            filename = f"mr-{relation_name}.json"
-    else:
-        filename = "base.json"
-    return model_dir / filename
 
 
 def _load_base_results(model_name: str) -> dict[str, dict]:

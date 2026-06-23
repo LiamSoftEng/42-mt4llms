@@ -16,20 +16,14 @@ class DeepSeekModel(BaseLLM):
         return self._model_name
 
     def generate(self, prompt: str) -> str:
-        completion = self.client.chat.completions.create(
-            model=self._model_name,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=TEMPERATURE,
-            top_p=0.7,
-            max_tokens=MAX_TOKENS,
+        completion = self._record_timed_call(
+            lambda: self.client.chat.completions.create(
+                model=self._model_name,
+                messages=[{"role": "user", "content": prompt}],
+                temperature=TEMPERATURE,
+                top_p=0.7,
+                max_tokens=MAX_TOKENS,
+            )
         )
-        usage = getattr(completion, "usage", None)
-        if usage is not None:
-            self._set_last_usage({
-                "prompt_tokens": getattr(usage, "prompt_tokens", None),
-                "completion_tokens": getattr(usage, "completion_tokens", None),
-                "total_tokens": getattr(usage, "total_tokens", None),
-            })
-        else:
-            self._set_last_usage(None)
+        self._set_openai_compatible_usage(completion)
         return completion.choices[0].message.content

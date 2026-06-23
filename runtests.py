@@ -20,13 +20,13 @@ from pathlib import Path
 
 from evaluation.executor import (
     extract_code, get_all_tests, get_func_name, run_test,
-    compute_passes_same_tests,
 )
 from evaluation.metrics import (
     compute_metrics,
     compute_code_similarity,
     compute_pairwise_code_variability,
     compute_extractable_code,
+    compute_passes_same_tests,
     compute_passes_tests,
     compute_token_count,
     compute_token_efficiency,

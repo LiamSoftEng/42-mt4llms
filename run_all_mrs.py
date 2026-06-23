@@ -5,7 +5,7 @@ from pathlib import Path
 
 from metamorphic.relations_list import RELATIONS
 from config.settings import GROK_MODEL, DEEPSEEK_MODEL
-from evaluation.runner import build_results_path
+from evaluation.paths import build_results_path
 
 
 def _load_run_results(model_name: str, relation_name: str, relation_id: int) -> list[dict] | None:

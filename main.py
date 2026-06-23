@@ -3,9 +3,9 @@ import subprocess
 import sys
 
 from data.loader import load_livecode_bench
-from evaluation.runner import PipelineRunner, build_results_path
+from evaluation.paths import build_results_path
+from evaluation.runner import PipelineRunner
 from llms import ClaudeModel, OpenAIModel, GeminiModel, DeepSeekModel, GrokModel
-import importlib
 from metamorphic.relations_list import RELATIONS
 
 MODEL_CHOICES = {
@@ -21,9 +21,7 @@ def get_relation(mr_id: int):
         available = list(RELATIONS.keys())
         raise ValueError(f"Unknown MR: {mr_id}. Available: {available}")
     entry = RELATIONS[mr_id]
-    module = importlib.import_module(entry["module"])
-    cls = getattr(module, entry["class"])
-    return cls()
+    return entry["class"]()
 
 def _run_tests(model_name: str, relation_name: str | None, relation_id: int | None, followup_only: bool) -> int:
     results_path = build_results_path(model_name, relation_name, relation_id)
