@@ -7,16 +7,7 @@ import json
 from pathlib import Path
 
 from evaluation.report import generate_html_report
-
-
-def _safe_name(model_name: str) -> str:
-    return model_name.replace("/", "_").replace(".", "-")
-
-
-def _mr_folder_name(relation_name: str, relation_id: int | None) -> str:
-    if relation_id is not None:
-        return f"mr-{relation_id:02d}-{relation_name}"
-    return f"mr-{relation_name}"
+from evaluation.paths import mr_folder_name, safe_name
 
 
 def write_base_content(results: list[dict], model_name: str, results_dir: str) -> Path:
@@ -31,7 +22,7 @@ def write_base_content(results: list[dict], model_name: str, results_dir: str) -
         "followup_total_tokens", "followup_thinking_tokens", "followup_token_efficiency",
         "followup_llm_call_time",
     }
-    out_dir = Path(results_dir) / _safe_name(model_name) / "base"
+    out_dir = Path(results_dir) / safe_name(model_name) / "base"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "base.json"
 
@@ -65,8 +56,8 @@ def write_followup_content(
         "followup_total_tokens", "followup_thinking_tokens", "followup_token_efficiency",
         "followup_llm_call_time",
     }
-    folder = _mr_folder_name(relation_name, relation_id)
-    out_dir = Path(results_dir) / _safe_name(model_name) / folder
+    folder = mr_folder_name(relation_name, relation_id)
+    out_dir = Path(results_dir) / safe_name(model_name) / folder
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "followup.json"
 
@@ -154,9 +145,9 @@ def write_all_outputs(
     # ── Followup results JSON ────────────────────────────────────────────────
     followup_results_path = None
     if has_mr:
-        folder = _mr_folder_name(relation_name, relation_id)
+        folder = mr_folder_name(relation_name, relation_id)
         followup_results_path = (
-            Path(results_dir) / _safe_name(model_name) / folder / "followup.results.json"
+            Path(results_dir) / safe_name(model_name) / folder / "followup.results.json"
         )
         followup_rows = []
         for row in metric_rows:
@@ -205,9 +196,9 @@ def write_all_outputs(
         write_results_json(followup_rows, followup_results_path)
 
     # ── HTML report ──────────────────────────────────────────────────────────
-    safe = _safe_name(model_name)
+    safe = safe_name(model_name)
     if has_mr:
-        folder = _mr_folder_name(relation_name, relation_id)
+        folder = mr_folder_name(relation_name, relation_id)
         html_path = Path(results_dir) / safe / f"{folder}.html"
     else:
         html_path = Path(results_dir) / safe / "base.html"

@@ -73,24 +73,3 @@ def run_test(
 
     elapsed = time.perf_counter() - t0
     return passed, actual, error, elapsed
-
-
-def compute_passes_same_tests(
-    source_results: list[tuple[bool, str, str, float]],
-    followup_results: list[tuple[bool, str, str, float]],
-) -> bool | None:
-    """
-    Return True if the followup code passes every test that the source code passed.
-
-    This is stricter than just checking overall pass rate — a followup that passes
-    *different* tests would still return False. Returns None when either list is empty.
-    """
-    if not source_results or not followup_results:
-        return None
-    if len(source_results) != len(followup_results):
-        return None
-
-    for (src_passed, *_), (flw_passed, *_) in zip(source_results, followup_results):
-        if src_passed and not flw_passed:
-            return False
-    return True
