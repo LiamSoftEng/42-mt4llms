@@ -31,10 +31,10 @@ class MRHelper:
             ],
         }
         if self._model_name.startswith("gpt-5"):
-            request["max_completion_tokens"] = 2000
+            request["max_completion_tokens"] = 2048
             request["reasoning_effort"] = "low"
         else:
-            request["max_tokens"] = 2000
+            request["max_tokens"] = 2048
 
         try:
             response = self.client.chat.completions.create(**request)

@@ -17,6 +17,7 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 GROK_API_KEY = os.getenv("GROK_API_KEY")
 
 # Model names (TODO: change please, based on knowledge cutoffs + call costs)
+HELPER_MODEL = "gpt-5-nano" #find fast, cheap model for MR helper, just putting gpt-5-nano for now
 CLAUDE_MODEL = "claude-sonnet-4-6"
 OPENAI_MODEL = "gpt-5-nano"
 GEMINI_MODEL = "gemini-2.5-flash"

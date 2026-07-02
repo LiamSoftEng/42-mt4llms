@@ -11,8 +11,15 @@ from metamorphic.relations.mrs import (
     MR9,
     MR10,
     MR11,
+    MR12,
+    MR13,
+    MR14,
+    MR15,
+    MR16,
+    MR17,
+    MR18,
+    MR19,
 )
-
 
 RELATIONS = {
     0:  {"class": MR0,  "name": "do_nothing",                    "target": "question",    "description": "Control relation that returns the original prompt and output unchanged."},
@@ -27,4 +34,14 @@ RELATIONS = {
     9:  {"class": MR9,  "name": "hint_trivial_algorithm",        "target": "instruction", "description": "Add a trivial algorithmic suggestion."},
     10: {"class": MR10, "name": "order_requirement_permutation", "target": "question",    "description": "Permute the order of independent constraints."},
     11: {"class": MR11, "name": "verbosity_lexical_expansion",   "target": "question",    "description": "Add brief definitions for common programming terms."},
+
+    # New ones
+    12: {"class": MR12, "name": "remove_example_sentences",  "target": "question",    "description": "Remove fenced code blocks and lines containing example/note/hint keywords from the question."},
+    13: {"class": MR13, "name": "antonym_substitution",      "target": "question",    "description": "LLM-assisted substitution of key terms with antonyms, rewriting surrounding logic to remain equivalent."},
+    14: {"class": MR14, "name": "synonym_substitution",      "target": "question",    "description": "LLM-assisted substitution of key terms in the question with synonyms while preserving semantics."},
+    15: {"class": MR15, "name": "loop_while_only",           "target": "instruction", "description": "Constrain the solution to use only while loops; no for loops permitted."},
+    16: {"class": MR16, "name": "full_commenting",           "target": "instruction", "description": "Require an inline comment on every non-blank line of the solution."},
+    17: {"class": MR17, "name": "dummy_variable",            "target": "instruction", "description": "Require declaration of an unused dummy variable (_unused_flag) at the start of the solution."},
+    18: {"class": MR18, "name": "guard_clause_conditionals", "target": "instruction", "description": "Require all conditional logic to be expressed as guard clauses (early returns) rather than nested if-else."},
+    19: {"class": MR19, "name": "use_recursion",             "target": "instruction", "description": "Require a recursive implementation; no iterative loops permitted."},
 }
