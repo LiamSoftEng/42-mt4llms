@@ -245,3 +245,27 @@ class MR11(BaseMR):
 
     def transform(self, text: str) -> str:
         return _append_line(text, VERBOSITY_NOTE)
+    
+class MR12(BaseMR):
+    target = "PD"
+
+class MR13(BaseMR):
+    target = "PD"
+
+class MR14(BaseMR):
+    target = "PD"
+
+class MR15(BaseMR):
+    target = "PD"
+
+class MR16(BaseMR):
+    target = "PD"
+
+class MR17(BaseMR):
+    target = "PD"
+
+class MR18(BaseMR):
+    target = "PD"
+    
+class MR19(BaseMR):
+    target = "PD"
