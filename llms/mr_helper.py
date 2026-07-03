@@ -1,6 +1,5 @@
 from openai import OpenAI
-from config.settings import OPENAI_API_KEY, MR_HELPER_MODEL
-
+from config.settings import OPENAI_API_KEY, MR_HELPER_MODEL, MR_HELPER_TOKENS
 
 class MRHelper:
 
@@ -31,10 +30,10 @@ class MRHelper:
             ],
         }
         if self._model_name.startswith("gpt-5"):
-            request["max_completion_tokens"] = 2048
+            request["max_completion_tokens"] = MR_HELPER_TOKENS
             request["reasoning_effort"] = "low"
         else:
-            request["max_tokens"] = 2048
+            request["max_tokens"] = MR_HELPER_TOKENS
 
         try:
             response = self.client.chat.completions.create(**request)

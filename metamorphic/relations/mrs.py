@@ -116,7 +116,7 @@ def _rewrite_return_to_negative(prompt: str) -> str:
 
 
 class MR0(BaseMR):
-    target = "question"
+    target = "PD"
 
     @property
     def name(self) -> str:
@@ -127,7 +127,7 @@ class MR0(BaseMR):
 
 
 class MR1(BaseMR):
-    target = "question"
+    target = "PD"
 
     @property
     def name(self) -> str:
@@ -138,7 +138,7 @@ class MR1(BaseMR):
 
 
 class MR2(BaseMR):
-    target = "instruction"
+    target = "I"
 
     @property
     def name(self) -> str:
@@ -149,7 +149,7 @@ class MR2(BaseMR):
 
 
 class MR3(BaseMR):
-    target = "question"
+    target = "PD"
 
     @property
     def name(self) -> str:
@@ -160,7 +160,7 @@ class MR3(BaseMR):
 
 
 class MR4(BaseMR):
-    target = "instruction"
+    target = "I"
 
     @property
     def name(self) -> str:
@@ -171,7 +171,7 @@ class MR4(BaseMR):
 
 
 class MR5(BaseMR):
-    target = "question"
+    target = "PD"
 
     @property
     def name(self) -> str:
@@ -182,7 +182,7 @@ class MR5(BaseMR):
 
 
 class MR6(BaseMR):
-    target = "instruction"
+    target = "I"
 
     @property
     def name(self) -> str:
@@ -193,7 +193,7 @@ class MR6(BaseMR):
 
 
 class MR7(BaseMR):
-    target = "instruction"
+    target = "I"
 
     @property
     def name(self) -> str:
@@ -204,7 +204,7 @@ class MR7(BaseMR):
 
 
 class MR8(BaseMR):
-    target = "instruction"
+    target = "I"
 
     @property
     def name(self) -> str:
@@ -215,7 +215,7 @@ class MR8(BaseMR):
 
 
 class MR9(BaseMR):
-    target = "instruction"
+    target = "I"
 
     @property
     def name(self) -> str:
@@ -226,7 +226,7 @@ class MR9(BaseMR):
 
 
 class MR10(BaseMR):
-    target = "question"
+    target = "PD"
 
     @property
     def name(self) -> str:
@@ -237,7 +237,7 @@ class MR10(BaseMR):
 
 
 class MR11(BaseMR):
-    target = "question"
+    target = "PD"
 
     @property
     def name(self) -> str:

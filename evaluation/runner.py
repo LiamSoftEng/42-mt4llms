@@ -257,14 +257,14 @@ class PipelineRunner:
                 followup_llm_call_time: float | None = None
 
                 if self.relation:
-                    target = getattr(self.relation, "target", "question")
+                    target = getattr(self.relation, "target", "PD")
 
-                    if target == "question":
+                    if target == "PD":
                         followup_question = self.relation.transform(question)
                         followup_instruction_prefix = INSTRUCTION_PREFIX
                         followup_instruction_suffix = INSTRUCTION_SUFFIX
                         followup_prompt = build_prompt(followup_question)
-                    elif target == "instruction":
+                    elif target == "I":
                         followup_question = question
                         followup_instruction_prefix, followup_instruction_suffix = self.relation.transform(
                             INSTRUCTION_PREFIX, INSTRUCTION_SUFFIX
