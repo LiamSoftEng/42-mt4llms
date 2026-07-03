@@ -36,7 +36,7 @@ RELATIONS = {
     11: {"class": MR11, "name": "verbosity_lexical_expansion",   "target": "PD",    "description": "Add brief definitions for common programming terms."},
 
     # New ones
-    12: {"class": MR12, "name": "remove_example_sentences",  "target": "PD",    "description": "Remove fenced code blocks and lines containing example/note/hint keywords from the question."},
+    12: {"class": MR12, "name": "remove_sentences",          "target": "PD",    "description": "Remove the nth line from the prompt."},
     13: {"class": MR13, "name": "antonym_substitution",      "target": "PD",    "description": "LLM-assisted substitution of key terms with antonyms, rewriting surrounding logic to remain equivalent."},
     14: {"class": MR14, "name": "synonym_substitution",      "target": "PD",    "description": "LLM-assisted substitution of key terms in the question with synonyms while preserving semantics."},
     15: {"class": MR15, "name": "loop_while_only",           "target": "I",     "description": "Constrain the solution to use only while loops; no for loops permitted."},

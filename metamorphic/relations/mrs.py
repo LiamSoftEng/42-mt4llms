@@ -114,6 +114,17 @@ def _rewrite_return_to_negative(prompt: str) -> str:
             return "\n".join(lines)
     return _insert_after_first_line(prompt, NEGATIVE_CONSTRAINT)
 
+#indexes second to last non-blank line, and removes it, as earlier sentences are often too important to remove
+def _remove_sentences(text: str) -> str:
+    """Remove the second-to-last line from the prompt, skipping past any blank lines."""
+    lines = text.split("\n")
+    idx = len(lines) - 2
+    while idx >= 0 and not lines[idx].strip():
+        idx -= 1
+    if idx >= 0:
+        del lines[idx]
+    return "\n".join(lines)
+
 
 class MR0(BaseMR):
     target = "PD"
@@ -245,9 +256,18 @@ class MR11(BaseMR):
 
     def transform(self, text: str) -> str:
         return _append_line(text, VERBOSITY_NOTE)
-    
+
+# New ones
 class MR12(BaseMR):
     target = "PD"
+ 
+    @property
+    def name(self) -> str:
+        return "remove_sentences"
+ 
+    def transform(self, text: str) -> str:
+        return _remove_sentences(text)
+
 
 class MR13(BaseMR):
     target = "PD"
@@ -266,6 +286,6 @@ class MR17(BaseMR):
 
 class MR18(BaseMR):
     target = "PD"
-    
+
 class MR19(BaseMR):
     target = "PD"
