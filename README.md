@@ -173,7 +173,7 @@ Available options:
 Examples:
 
 ```powershell
-python runtests.py --results results\gpt-5-nano\base.json --stdout
+python runtests.py --results results\gpt-5-nano\base\base.json --stdout
 
 python runtests.py `
   --results results\gpt-5-nano\mr-04-persona_role_prompting.json `
@@ -215,8 +215,8 @@ Interpretation:
 Raw generation results are saved under:
 
 ```text
-results/<model>/base.json
-results/<model>/mr-<id>-<relation>.json
+results/<model>/base/base.json
+results/<model>/mr-<id>-<relation>/mr-<id>-<relation>.json
 ```
 
 The model directory uses the configured model name from `config/settings.py`, sanitized for use as a folder name. For example, the `openai` CLI alias currently writes under `results/gpt-5-nano/`.
@@ -227,12 +227,18 @@ When `--write-outputs` is used, additional files are created:
 results/<model>/
 |-- base/
 |   |-- base.json
+|   |-- base.html
+|   `-- base.tests.log
 |   `-- base.results.json
 |-- mr-<id>-<relation>/
+|   |-- mr-<id>-<relation>.json
 |   |-- followup.json
-|   `-- followup.results.json
-|-- base.html
-`-- mr-<id>-<relation>.html
+|   |-- followup.results.json
+|   |-- mr-<id>-<relation>.html
+|   `-- mr-<id>-<relation>.tests.log
+`-- all_mrs/
+  |-- all_mrs.json
+  `-- all_mrs.tests.log
 ```
 
 Test logs default to the input result filename with `.tests.log` appended. CSV output is written only when `--csv` is supplied.

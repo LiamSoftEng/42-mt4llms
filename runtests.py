@@ -4,9 +4,9 @@ If the results file contains followup responses (from --mr), tests both
 and computes MR verdict.
 
 Usage:
-    python runtests.py --results results/grok/base.json
-    python runtests.py --results results/grok/base.json --n 5
-    python runtests.py --results results/grok/base.json --stdout
+    python runtests.py --results results/grok/base/base.json
+    python runtests.py --results results/grok/base/base.json --n 5
+    python runtests.py --results results/grok/base/base.json --stdout
     python runtests.py --results results/grok/mr-05-context_extraneous_narrative.json --followup-only
     python runtests.py --results results/grok/mr-05-context_extraneous_narrative.json --csv results/grok/metrics.csv
 """
