@@ -18,22 +18,29 @@ ANTONYM_PROMPT_DIFF = (
             "ensuring that the substitutions make sense in context"
             "All numeric constraints, input/output formats, and the required answer must stay identical. "
             "Output only the rewritten problem text with no preamble."
-        )
+)
 ANTONYM_PROMPT_EQUIV = (
-            "Rewrite the programming problem below by substituting key terms with their antonyms "
-            "ensuring that the substitutions make sense in context"
-            "and adjusting the surrounding logic so the problem remains semantically equivalent "
-            "(e.g. 'ascending order' → 'not in descending order'). "
-            "All numeric constraints, input/output formats, and the required answer must stay identical. "
-            "Output only the rewritten problem text with no preamble."
-        )
+    "Rewrite the programming problem below by substituting key terms with their antonyms "
+    "ensuring that the substitutions make sense in context"
+    "and adjusting the surrounding logic so the problem remains semantically equivalent "
+    "(e.g. 'ascending order' → 'not in descending order'). "
+    "All numeric constraints, input/output formats, and the required answer must stay identical. "
+    "Output only the rewritten problem text with no preamble."
+)
 SYNONYM_PROMPT = (
-            "Rewrite the programming problem below by substituting key domain terms and verbs "
-            "ensuring that the substitutions make sense in context"
-            "Preserve all numeric constraints, input/output formats, and the exact meaning. "
-            "Do not add or remove any requirements. "
-            "Output only the rewritten problem text with no preamble."
-        )
+    "Rewrite the programming problem below by substituting key domain terms and verbs "
+    "ensuring that the substitutions make sense in context"
+    "Preserve all numeric constraints, input/output formats, and the exact meaning. "
+    "Do not add or remove any requirements. "
+    "Output only the rewritten problem text with no preamble."
+)
+LOOP_TYPE_CONSTRAINT = (
+    "You must use only while loops for all iteration. Do not use for loops."
+)
+FULL_COMMENTING_CONSTRAINT = (
+    "Add a concise inline comment to every line of your solution explaining what that line does. "
+    "Every non-blank line of code must have a comment."
+)
 
 
 
@@ -315,10 +322,25 @@ class MR14(BaseMR):
         return mr_llm_transform(SYNONYM_PROMPT, text)
 
 class MR15(BaseMR):
-    target = "PD"
+    target = "I"
+
+    @property
+    def name(self) -> str:
+        return "loop_while_only"
+ 
+    def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
+        return _insert_after_first_line(prefix, LOOP_TYPE_CONSTRAINT), suffix
 
 class MR16(BaseMR):
-    target = "PD"
+    target = "I"
+
+    @property
+    def name(self) -> str:
+        return "full_commenting"
+
+    def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
+        return _insert_after_first_line(prefix, FULL_COMMENTING_CONSTRAINT), suffix
+
 
 class MR17(BaseMR):
     target = "PD"

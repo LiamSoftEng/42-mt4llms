@@ -12,9 +12,9 @@ from pathlib import Path
 
 CONFIG = {
     "models": ["openai"],
-    "n": 1,
+    "n": 5,
     "after": None,
-    "mr": 14,
+    "mr": 15,
     "mr_only": False,
     "run_tests": True,
     "repeats": False,
