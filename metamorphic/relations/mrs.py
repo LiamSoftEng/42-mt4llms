@@ -41,6 +41,19 @@ FULL_COMMENTING_CONSTRAINT = (
     "Add a concise inline comment to every line of your solution explaining what that line does. "
     "Every non-blank line of code must have a comment."
 )
+DUMMY_VARIABLE_CONSTRAINT = (
+    "At the start of your solution, declare a variable named _unused_flag and set it to True. "
+    "Declare a variable named unused_itteration and set it to 0."
+    "Do not use it these variables anywhere else in your solution."
+)
+GUARD_CLAUSE_CONSTRAINT = (
+    "All conditional logic must be expressed as guard clauses (early returns) rather than nested if-else statements. "
+    "Do not use nested if-else statements."
+)
+RECURSION_CONSTRAINT = (
+    "You must implement your solution using recursion. "
+    "Do not use any iterative loops (for or while)."
+)
 
 
 
@@ -343,10 +356,32 @@ class MR16(BaseMR):
 
 
 class MR17(BaseMR):
-    target = "PD"
+    target = "I"
+
+    @property
+    def name(self) -> str:
+        return "dummy_variable"
+ 
+    def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
+        return _insert_after_first_line(prefix, DUMMY_VARIABLE_CONSTRAINT), suffix
 
 class MR18(BaseMR):
-    target = "PD"
+    target = "I"
+
+    @property
+    def name(self) -> str:
+        return "guard_clause_conditionals"
+ 
+    def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
+        return _insert_after_first_line(prefix, GUARD_CLAUSE_CONSTRAINT), suffix
+
 
 class MR19(BaseMR):
-    target = "PD"
+    target = "I"
+
+    @property
+    def name(self) -> str:
+        return "use_recursion"
+ 
+    def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
+        return _insert_after_first_line(prefix, RECURSION_CONSTRAINT), suffix
