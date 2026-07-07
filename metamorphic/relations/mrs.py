@@ -1,5 +1,6 @@
 import re
 from metamorphic.relations.base_mr import BaseMR
+from llms.mr_helper import mr_llm_transform
 
 NOISE = "Note: This problem was originally presented in an international programming contest."
 REDUNDANT_SPEC = "Follow the programming language's required syntax rules (e.g., indentation for scope in Python)."
@@ -12,6 +13,29 @@ NEGATIVE_CONSTRAINT = "Do not return anything other than what the specification 
 VERBOSITY_NOTE = (
     "Definitions: iterate means loop through each element; concatenate means append one string to the end of another."
 )
+ANTONYM_PROMPT_DIFF = (
+            "Rewrite the programming problem below by substituting key terms with their antonyms "
+            "ensuring that the substitutions make sense in context"
+            "All numeric constraints, input/output formats, and the required answer must stay identical. "
+            "Output only the rewritten problem text with no preamble."
+        )
+ANTONYM_PROMPT_EQUIV = (
+            "Rewrite the programming problem below by substituting key terms with their antonyms "
+            "ensuring that the substitutions make sense in context"
+            "and adjusting the surrounding logic so the problem remains semantically equivalent "
+            "(e.g. 'ascending order' → 'not in descending order'). "
+            "All numeric constraints, input/output formats, and the required answer must stay identical. "
+            "Output only the rewritten problem text with no preamble."
+        )
+SYNONYM_PROMPT = (
+            "Rewrite the programming problem below by substituting key domain terms and verbs "
+            "ensuring that the substitutions make sense in context"
+            "Preserve all numeric constraints, input/output formats, and the exact meaning. "
+            "Do not add or remove any requirements. "
+            "Output only the rewritten problem text with no preamble."
+        )
+
+
 
 
 def _insert_after_first_line(prompt: str, line: str) -> str:
@@ -272,8 +296,23 @@ class MR12(BaseMR):
 class MR13(BaseMR):
     target = "PD"
 
+    @property
+    def name(self) -> str:
+        return "antonym_substitution"
+ 
+    def transform(self, text: str) -> str:
+        return mr_llm_transform(ANTONYM_PROMPT_DIFF, text)
+
+
 class MR14(BaseMR):
     target = "PD"
+
+    @property
+    def name(self) -> str:
+        return "synonym_substitution"
+
+    def transform(self, text: str) -> str:
+        return mr_llm_transform(SYNONYM_PROMPT, text)
 
 class MR15(BaseMR):
     target = "PD"

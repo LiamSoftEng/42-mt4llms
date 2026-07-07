@@ -14,7 +14,7 @@ CONFIG = {
     "models": ["openai"],
     "n": 1,
     "after": None,
-    "mr": 12,
+    "mr": 14,
     "mr_only": False,
     "run_tests": True,
     "repeats": False,
