@@ -13,12 +13,29 @@ def mr_folder_name(relation_name: str, relation_id: int | None) -> str:
     return f"mr-{relation_name}"
 
 
-def build_results_path(
+def build_results_dir(
     model_name: str,
     relation_name: str | None = None,
     relation_id: int | None = None,
 ) -> Path:
     model_dir = Path(RESULTS_DIR) / safe_name(model_name)
-    model_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"{mr_folder_name(relation_name, relation_id)}.json" if relation_name else "base.json"
-    return model_dir / filename
+    if relation_name:
+        results_dir = model_dir / mr_folder_name(relation_name, relation_id)
+    else:
+        results_dir = model_dir
+    results_dir.mkdir(parents=True, exist_ok=True)
+    return results_dir
+
+
+def build_results_path(
+    model_name: str,
+    relation_name: str | None = None,
+    relation_id: int | None = None,
+) -> Path:
+    if relation_name:
+        filename = f"{mr_folder_name(relation_name, relation_id)}.json"
+        return build_results_dir(model_name, relation_name, relation_id) / filename
+
+    base_dir = Path(RESULTS_DIR) / safe_name(model_name) / "base"
+    base_dir.mkdir(parents=True, exist_ok=True)
+    return base_dir / "base.json"

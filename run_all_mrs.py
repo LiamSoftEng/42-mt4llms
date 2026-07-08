@@ -19,8 +19,9 @@ def _load_run_results(model_name: str, relation_name: str, relation_id: int) -> 
 
 def main() -> int:
     base_results_path = build_results_path(DEEPSEEK_MODEL, None, None)
-    model_dir = base_results_path.parent
-    out_path = model_dir / "all_mrs.json"
+    model_dir = base_results_path.parent.parent
+    out_dir = model_dir / "all_mrs"
+    out_path = out_dir / "all_mrs.json"
     combined_results: list[dict] = []
     mr_ids = sorted(RELATIONS.keys())
     for mr_id in mr_ids:
@@ -47,12 +48,12 @@ def main() -> int:
             return 1
         combined_results.extend(run_results)
 
-    model_dir.mkdir(parents=True, exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(combined_results, f, indent=2, ensure_ascii=False)
     print(f"\nSaved all MR results -> {out_path}")
 
-    tests_out_path = model_dir / "all_mrs.tests.log"
+    tests_out_path = out_dir / "all_mrs.tests.log"
     test_result = subprocess.run(
         [
             sys.executable,

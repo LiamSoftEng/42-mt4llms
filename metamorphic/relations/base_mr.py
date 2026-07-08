@@ -1,5 +1,5 @@
 class BaseMR:
-    target = "question"
+    target = "PD"
  
     def transform(self, text: str) -> str:
         raise NotImplementedError

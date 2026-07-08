@@ -7,10 +7,32 @@ import time
 
 
 def extract_code(response: str) -> str | None:
-    """Pull the Python code block out of the model response."""
+    """
+    Pull the Python code block out of the model response.
+
+    Tries, in order:
+      1. ```python ... ``` fenced block (preferred, most explicit)
+      2. ``` ... ``` fenced block with no language tag
+      3. Raw response treated as code, if it has no fence markers at all
+         (some models emit bare code with no markdown fencing)
+    Returns None only if the response is empty or contains fence markers
+    that don't resolve into a matched block (i.e. genuinely unparseable).
+    """
+    if not response:
+        return None
+
     match = re.search(r"```python\s*(.*?)```", response, re.DOTALL)
     if match:
         return match.group(1).strip()
+
+    match = re.search(r"```\s*(.*?)```", response, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+
+    stripped = response.strip()
+    if stripped and "```" not in stripped:
+        return stripped
+
     return None
 
 
@@ -44,7 +66,6 @@ def run_test(
 ) -> tuple[bool, str, str, float]:
     """
     Run a single test case against the extracted code.
-
     Returns (passed, actual_output, error, elapsed_seconds).
     elapsed_seconds is the wall-clock time spent inside the harness.
     """

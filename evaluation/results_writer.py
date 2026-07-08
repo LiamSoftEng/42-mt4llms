@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 from evaluation.report import generate_html_report
-from evaluation.paths import mr_folder_name, safe_name
+from evaluation.paths import build_results_dir, mr_folder_name, safe_name
 
 
 def write_base_content(results: list[dict], model_name: str, results_dir: str) -> Path:
@@ -198,10 +198,10 @@ def write_all_outputs(
     # ── HTML report ──────────────────────────────────────────────────────────
     safe = safe_name(model_name)
     if has_mr:
-        folder = mr_folder_name(relation_name, relation_id)
-        html_path = Path(results_dir) / safe / f"{folder}.html"
+        out_dir = build_results_dir(model_name, relation_name, relation_id)
+        html_path = out_dir / f"{out_dir.name}.html"
     else:
-        html_path = Path(results_dir) / safe / "base.html"
+        html_path = Path(results_dir) / safe / "base" / "base.html"
 
     generate_html_report(
         base_results_path=base_results_path,

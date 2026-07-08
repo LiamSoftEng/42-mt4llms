@@ -70,6 +70,27 @@ def _fmt_tokens(prompt, completion, thinking) -> str:
     return " ".join(parts) if parts else "N/A"
 
 
+def _fmt_duration(seconds) -> str:
+    if not isinstance(seconds, (int, float)):
+        return "N/A"
+    seconds = round(seconds, 1)
+    hours, remainder = divmod(int(seconds), 3600)
+    minutes, secs = divmod(remainder, 60)
+    if hours:
+        return f"{hours}h {minutes:02d}m {secs:02d}s"
+    if minutes:
+        return f"{minutes}m {secs:02d}s"
+    return f"{seconds:.1f}s"
+
+
+def _row_total_time(b: dict, f: dict, has_mr: bool) -> float | None:
+    parts = [b.get("llm_call_time"), b.get("test_run_time")]
+    if has_mr:
+        parts += [f.get("llm_call_time"), f.get("test_run_time")]
+    nums = [p for p in parts if isinstance(p, (int, float))]
+    return sum(nums) if nums else None
+
+
 def generate_html_report(
     base_results_path: Path,
     followup_results_path: Path | None,
@@ -99,6 +120,14 @@ def generate_html_report(
 
     same_tests_count = sum(1 for qid in all_ids if followup.get(qid, {}).get("passes_same_tests") is True)
     diff_tests_count = sum(1 for qid in all_ids if followup.get(qid, {}).get("passes_same_tests") is False)
+
+    def _sum_time(rows: dict, key: str) -> float:
+        return sum(r[key] for r in rows.values() if isinstance(r.get(key), (int, float)))
+
+    total_time = (
+        _sum_time(base, "llm_call_time") + _sum_time(base, "test_run_time")
+        + _sum_time(followup, "llm_call_time") + _sum_time(followup, "test_run_time")
+    )
 
     # ── Build rows ───────────────────────────────────────────────────────────
     rows_html = ""
@@ -144,6 +173,8 @@ def generate_html_report(
         b_test_t = f'{b.get("test_run_time"):.2f}s' if isinstance(b.get("test_run_time"), (int, float)) else "N/A"
         f_test_t = f'{f.get("test_run_time"):.2f}s' if has_mr and isinstance(f.get("test_run_time"), (int, float)) else "N/A"
 
+        row_total_time = _fmt_duration(_row_total_time(b, f, has_mr))
+
         if has_mr:
             rows_html += f"""
             <tr>
@@ -169,7 +200,7 @@ def generate_html_report(
                 <td>{f_tok}<br><small>eff:{_fmt(f_eff, 3)}</small></td>
                 <td>{b_llm_t}<br><small>test:{b_test_t}</small></td>
                 <td>{f_llm_t}<br><small>test:{f_test_t}</small></td>
-                <td><span class="badge na">N/A</span></td>
+                <td>{row_total_time}</td>
             </tr>"""
         else:
             rows_html += f"""
@@ -223,6 +254,13 @@ def generate_html_report(
             <div class="stat-sub">{same_tests_count} same / {diff_tests_count} different</div>
         </div>"""
 
+    total_time_stat = f"""
+    <div class="stat-box">
+        <div class="stat-label">Total time</div>
+        <div class="stat-value">{_fmt_duration(total_time)}</div>
+        <div class="stat-sub">LLM calls + test execution, all rows</div>
+    </div>"""
+
     # ── Table headers ────────────────────────────────────────────────────────
     if has_mr:
         table_headers = """
@@ -243,7 +281,7 @@ def generate_html_report(
             <th>Flw tokens / eff</th>
             <th>Base LLM / test time</th>
             <th>Flw LLM / test time</th>
-            <th>Constraint adherence</th>"""
+            <th>Total time</th>"""
     else:
         table_headers = """
             <th>Problem</th>
@@ -304,6 +342,7 @@ def generate_html_report(
   </div>
   {followup_stat}
   {mr_section}
+  {total_time_stat}
 </div>
 
 <div class="table-wrap">

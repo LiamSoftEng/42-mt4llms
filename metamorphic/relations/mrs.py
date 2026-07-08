@@ -1,5 +1,6 @@
 import re
 from metamorphic.relations.base_mr import BaseMR
+from llms.mr_helper import mr_llm_transform
 
 NOISE = "Note: This problem was originally presented in an international programming contest."
 REDUNDANT_SPEC = "Follow the programming language's required syntax rules (e.g., indentation for scope in Python)."
@@ -12,6 +13,49 @@ NEGATIVE_CONSTRAINT = "Do not return anything other than what the specification 
 VERBOSITY_NOTE = (
     "Definitions: iterate means loop through each element; concatenate means append one string to the end of another."
 )
+ANTONYM_PROMPT_DIFF = (
+            "Rewrite the programming problem below by substituting key terms with their antonyms "
+            "ensuring that the substitutions make sense in context"
+            "All numeric constraints, input/output formats, and the required answer must stay identical. "
+            "Output only the rewritten problem text with no preamble."
+)
+ANTONYM_PROMPT_EQUIV = (
+    "Rewrite the programming problem below by substituting key terms with their antonyms "
+    "ensuring that the substitutions make sense in context"
+    "and adjusting the surrounding logic so the problem remains semantically equivalent "
+    "(e.g. 'ascending order' → 'not in descending order'). "
+    "All numeric constraints, input/output formats, and the required answer must stay identical. "
+    "Output only the rewritten problem text with no preamble."
+)
+SYNONYM_PROMPT = (
+    "Rewrite the programming problem below by substituting key domain terms and verbs "
+    "ensuring that the substitutions make sense in context"
+    "Preserve all numeric constraints, input/output formats, and the exact meaning. "
+    "Do not add or remove any requirements. "
+    "Output only the rewritten problem text with no preamble."
+)
+LOOP_TYPE_CONSTRAINT = (
+    "You must use only while loops for all iteration. Do not use for loops."
+)
+FULL_COMMENTING_CONSTRAINT = (
+    "Add a concise inline comment to every line of your solution explaining what that line does. "
+    "Every non-blank line of code must have a comment."
+)
+DUMMY_VARIABLE_CONSTRAINT = (
+    "At the start of your solution, declare a variable named _unused_flag and set it to True. "
+    "Declare a variable named unused_itteration and set it to 0."
+    "Do not use it these variables anywhere else in your solution."
+)
+GUARD_CLAUSE_CONSTRAINT = (
+    "All conditional logic must be expressed as guard clauses (early returns) rather than nested if-else statements. "
+    "Do not use nested if-else statements."
+)
+RECURSION_CONSTRAINT = (
+    "You must implement your solution using recursion. "
+    "Do not use any iterative loops (for or while)."
+)
+
+
 
 
 def _insert_after_first_line(prompt: str, line: str) -> str:
@@ -114,9 +158,20 @@ def _rewrite_return_to_negative(prompt: str) -> str:
             return "\n".join(lines)
     return _insert_after_first_line(prompt, NEGATIVE_CONSTRAINT)
 
+#indexes second to last non-blank line, and removes it, as earlier sentences are often too important to remove
+def _remove_sentences(text: str) -> str:
+    """Remove the second-to-last line from the prompt, skipping past any blank lines."""
+    lines = text.split("\n")
+    idx = len(lines) - 2
+    while idx >= 0 and not lines[idx].strip():
+        idx -= 1
+    if idx >= 0:
+        del lines[idx]
+    return "\n".join(lines)
+
 
 class MR0(BaseMR):
-    target = "question"
+    target = "PD"
 
     @property
     def name(self) -> str:
@@ -127,7 +182,7 @@ class MR0(BaseMR):
 
 
 class MR1(BaseMR):
-    target = "question"
+    target = "PD"
 
     @property
     def name(self) -> str:
@@ -138,7 +193,7 @@ class MR1(BaseMR):
 
 
 class MR2(BaseMR):
-    target = "instruction"
+    target = "I"
 
     @property
     def name(self) -> str:
@@ -149,7 +204,7 @@ class MR2(BaseMR):
 
 
 class MR3(BaseMR):
-    target = "question"
+    target = "PD"
 
     @property
     def name(self) -> str:
@@ -160,7 +215,7 @@ class MR3(BaseMR):
 
 
 class MR4(BaseMR):
-    target = "instruction"
+    target = "I"
 
     @property
     def name(self) -> str:
@@ -171,7 +226,7 @@ class MR4(BaseMR):
 
 
 class MR5(BaseMR):
-    target = "question"
+    target = "PD"
 
     @property
     def name(self) -> str:
@@ -182,7 +237,7 @@ class MR5(BaseMR):
 
 
 class MR6(BaseMR):
-    target = "instruction"
+    target = "I"
 
     @property
     def name(self) -> str:
@@ -193,7 +248,7 @@ class MR6(BaseMR):
 
 
 class MR7(BaseMR):
-    target = "instruction"
+    target = "I"
 
     @property
     def name(self) -> str:
@@ -204,7 +259,7 @@ class MR7(BaseMR):
 
 
 class MR8(BaseMR):
-    target = "instruction"
+    target = "I"
 
     @property
     def name(self) -> str:
@@ -215,7 +270,7 @@ class MR8(BaseMR):
 
 
 class MR9(BaseMR):
-    target = "instruction"
+    target = "I"
 
     @property
     def name(self) -> str:
@@ -226,7 +281,7 @@ class MR9(BaseMR):
 
 
 class MR10(BaseMR):
-    target = "question"
+    target = "PD"
 
     @property
     def name(self) -> str:
@@ -237,7 +292,7 @@ class MR10(BaseMR):
 
 
 class MR11(BaseMR):
-    target = "question"
+    target = "PD"
 
     @property
     def name(self) -> str:
@@ -245,3 +300,88 @@ class MR11(BaseMR):
 
     def transform(self, text: str) -> str:
         return _append_line(text, VERBOSITY_NOTE)
+
+# New ones
+class MR12(BaseMR):
+    target = "PD"
+ 
+    @property
+    def name(self) -> str:
+        return "remove_sentences"
+ 
+    def transform(self, text: str) -> str:
+        return _remove_sentences(text)
+
+
+class MR13(BaseMR):
+    target = "PD"
+
+    @property
+    def name(self) -> str:
+        return "antonym_substitution"
+ 
+    def transform(self, text: str) -> str:
+        return mr_llm_transform(ANTONYM_PROMPT_DIFF, text)
+
+
+class MR14(BaseMR):
+    target = "PD"
+
+    @property
+    def name(self) -> str:
+        return "synonym_substitution"
+
+    def transform(self, text: str) -> str:
+        return mr_llm_transform(SYNONYM_PROMPT, text)
+
+class MR15(BaseMR):
+    target = "I"
+
+    @property
+    def name(self) -> str:
+        return "loop_while_only"
+ 
+    def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
+        return _insert_after_first_line(prefix, LOOP_TYPE_CONSTRAINT), suffix
+
+class MR16(BaseMR):
+    target = "I"
+
+    @property
+    def name(self) -> str:
+        return "full_commenting"
+
+    def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
+        return _insert_after_first_line(prefix, FULL_COMMENTING_CONSTRAINT), suffix
+
+
+class MR17(BaseMR):
+    target = "I"
+
+    @property
+    def name(self) -> str:
+        return "dummy_variable"
+ 
+    def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
+        return _insert_after_first_line(prefix, DUMMY_VARIABLE_CONSTRAINT), suffix
+
+class MR18(BaseMR):
+    target = "I"
+
+    @property
+    def name(self) -> str:
+        return "guard_clause_conditionals"
+ 
+    def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
+        return _insert_after_first_line(prefix, GUARD_CLAUSE_CONSTRAINT), suffix
+
+
+class MR19(BaseMR):
+    target = "I"
+
+    @property
+    def name(self) -> str:
+        return "use_recursion"
+ 
+    def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
+        return _insert_after_first_line(prefix, RECURSION_CONSTRAINT), suffix
