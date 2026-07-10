@@ -1,6 +1,6 @@
 import re
 from metamorphic.relations.base_mr import BaseMR
-from metamorphic.relations import phrases as ph
+from metamorphic.relations import phrases
 from metamorphic.relations.phrases import _pick
 from llms.mr_helper import mr_llm_transform
 
@@ -97,7 +97,7 @@ def _rewrite_return_to_negative(prompt: str) -> str:
             prefix = line[:prefix_len]
             lines[i] = f"{prefix}Do not return anything other than {rest}."
             return "\n".join(lines)
-    return _insert_after_first_line(prompt, _pick(ph.NEGATIVE_CONSTRAINT))
+    return _insert_after_first_line(prompt, "Do not return anything other than the expected output.")
 
 
 #indexes second to last non-blank line, and removes it, as earlier sentences are often too important to remove
@@ -128,10 +128,10 @@ class MR1(BaseMR):
 
     @property
     def name(self) -> str:
-        return "dead_context"
+        return "irrelevant_context"
 
     def transform(self, text: str) -> str:
-        return _insert_after_first_line(text, _pick(ph.NOISE))
+        return _insert_after_first_line(text, _pick(phrases.IRRELEVANT_CONTEXT))
 
 
 class MR2(BaseMR):
@@ -142,7 +142,7 @@ class MR2(BaseMR):
         return "constraint_redundant_spec"
 
     def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
-        return _insert_after_first_line(prefix, _pick(ph.REDUNDANT_SPEC)), suffix
+        return _insert_after_first_line(prefix, _pick(phrases.REDUNDANT_CONTEXT)), suffix
 
 
 class MR3(BaseMR):
@@ -164,7 +164,7 @@ class MR4(BaseMR):
         return "persona_role_prompting"
 
     def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
-        return _prepend_line(prefix, _pick(ph.PERSONA)), suffix
+        return _prepend_line(prefix, _pick(phrases.PERSONAS)), suffix
 
 
 class MR5(BaseMR):
@@ -186,18 +186,7 @@ class MR6(BaseMR):
         return "identifier_explicit_naming"
 
     def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
-        return _insert_after_first_line(prefix, _pick(ph.IDENTIFIER_CONSTRAINT)), suffix
-
-
-class MR7(BaseMR):
-    target = "I"
-
-    @property
-    def name(self) -> str:
-        return "hint_trivial_algorithm"
-
-    def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
-        return _insert_after_first_line(prefix, _pick(ph.TRIVIAL_HINT)), suffix
+        return _insert_after_first_line(prefix, _pick(phrases.IDENTIFIER_CONSTRAINT)), suffix
 
 
 class MR8(BaseMR):
@@ -231,7 +220,7 @@ class MR10(BaseMR):
         return "antonym_substitution"
 
     def transform(self, text: str) -> str:
-        return mr_llm_transform(_pick(ph.ANTONYM_PROMPT_DIFF), text)
+        return mr_llm_transform(_pick(phrases.ANTONYM_PROMPT_DIFF), text)
 
 
 class MR11(BaseMR):
@@ -242,7 +231,7 @@ class MR11(BaseMR):
         return "synonym_substitution"
 
     def transform(self, text: str) -> str:
-        return mr_llm_transform(_pick(ph.SYNONYM_PROMPT), text)
+        return mr_llm_transform(_pick(phrases.SYNONYM_PROMPT), text)
 
 
 class MR12(BaseMR):
@@ -253,7 +242,7 @@ class MR12(BaseMR):
         return "loop_while_only"
 
     def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
-        return _insert_after_first_line(prefix, _pick(ph.LOOP_TYPE_CONSTRAINT)), suffix
+        return _insert_after_first_line(prefix, _pick(phrases.LOOP_TYPE_CONSTRAINT)), suffix
 
 
 class MR13(BaseMR):
@@ -264,7 +253,7 @@ class MR13(BaseMR):
         return "full_commenting"
 
     def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
-        return _insert_after_first_line(prefix, _pick(ph.FULL_COMMENTING_CONSTRAINT)), suffix
+        return _insert_after_first_line(prefix, _pick(phrases.FULL_COMMENTING_CONSTRAINT)), suffix
 
 
 class MR14(BaseMR):
@@ -275,7 +264,7 @@ class MR14(BaseMR):
         return "dummy_variable"
 
     def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
-        return _insert_after_first_line(prefix, _pick(ph.DUMMY_VARIABLE_CONSTRAINT)), suffix
+        return _insert_after_first_line(prefix, _pick(phrases.DUMMY_VARIABLE_CONSTRAINT)), suffix
 
 
 class MR15(BaseMR):
@@ -286,7 +275,7 @@ class MR15(BaseMR):
         return "guard_clause_conditionals"
 
     def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
-        return _insert_after_first_line(prefix, _pick(ph.GUARD_CLAUSE_CONSTRAINT)), suffix
+        return _insert_after_first_line(prefix, _pick(phrases.GUARD_CLAUSE_CONSTRAINT)), suffix
 
 
 class MR16(BaseMR):
@@ -297,4 +286,4 @@ class MR16(BaseMR):
         return "use_recursion"
 
     def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
-        return _insert_after_first_line(prefix, _pick(ph.RECURSION_CONSTRAINT)), suffix
+        return _insert_after_first_line(prefix, _pick(phrases.RECURSION_CONSTRAINT)), suffix

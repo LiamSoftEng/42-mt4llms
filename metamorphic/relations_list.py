@@ -6,7 +6,6 @@ from metamorphic.relations.mrs import (
     MR4,
     MR5,
     MR6,
-    MR7,
     MR8,
     MR9,
     MR10,
@@ -26,7 +25,6 @@ RELATIONS = {
     4:  {"class": MR4,  "name": "persona_role_prompting",         "target": "I",  "description": "Prepend a persona to the prompt."},
     5:  {"class": MR5,  "name": "polarity_negative_formulation",  "target": "I",  "description": "Rewrite a return constraint into an equivalent negative form."},
     6:  {"class": MR6,  "name": "identifier_explicit_naming",     "target": "I",  "description": "Add explicit internal naming constraints for variables."},
-    7:  {"class": MR7,  "name": "hint_trivial_algorithm",         "target": "I",  "description": "Add a trivial algorithmic suggestion."},
     8:  {"class": MR8,  "name": "order_requirement_permutation",  "target": "PD", "description": "Permute the order of independent constraints."},
     # New ones
     9:  {"class": MR9,  "name": "remove_sentences",          "target": "PD", "description": "Remove the nth line from the prompt."},
