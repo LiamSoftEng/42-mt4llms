@@ -1,12 +1,15 @@
 import random
 
+
 def _pick(variants: list[str]) -> str:
     return random.choice(variants)
+
 
 def make_identifier_constraint(words: list[str]) -> str:
     loop_var, output_var = random.sample(words, 2)
     template = _pick(IDENTIFIER_CONSTRAINT)
     return template.format(loop=loop_var, out=output_var)
+
 
 WORDS = [
     "whisper",
@@ -76,12 +79,27 @@ PERSONAS = [
     "You are a research engineer implementing an algorithm straight from an academic paper, prioritizing correctness over polish.",
 ]
 
+NEGATION_PROMPT = (
+    "Rewrite the programming problem below so that any statement describing what the "
+    "solution should return or output is expressed in an equivalent negative form "
+    "(e.g. 'return the maximum value' becomes 'do not return any value smaller than the maximum'). "
+    "Keep every constraint, input/output format, and the required answer identical — only the "
+    "phrasing of the return/output requirement should change. "
+    "Output only the rewritten problem text with no preamble."
+)
+
 IDENTIFIER_CONSTRAINT = [
     "Use {loop} as your loop variable and {out} as your output list.",
     "Name your loop variable {loop} and your output list {out}.",
 ]
 
-
+PERMUTATION_PROMPT = (
+    "Rewrite the programming problem below by reordering independent constraints, requirements, "
+    "or setup sentences into a different but logically equivalent order. Do not change, remove, "
+    "add, or reword any requirement, constraint, or detail — only reorder sentences or clauses "
+    "that do not depend on one another. "
+    "Output only the rewritten problem text with no preamble."
+)
 
 ANTONYM_PROMPT_DIFF = (
     "Rewrite the programming problem below by substituting key terms with their antonyms "
@@ -89,6 +107,7 @@ ANTONYM_PROMPT_DIFF = (
     "All numeric constraints, input/output formats, and the required answer must stay identical. "
     "Output only the rewritten problem text with no preamble."
 )
+
 ANTONYM_PROMPT_EQUIV = (
     "Rewrite the programming problem below by substituting key terms with their antonyms "
     "ensuring that the substitutions make sense in context"
@@ -97,6 +116,7 @@ ANTONYM_PROMPT_EQUIV = (
     "All numeric constraints, input/output formats, and the required answer must stay identical. "
     "Output only the rewritten problem text with no preamble."
 )
+
 SYNONYM_PROMPT = (
     "Rewrite the programming problem below by substituting key domain terms and verbs "
     "ensuring that the substitutions make sense in context"
@@ -104,26 +124,28 @@ SYNONYM_PROMPT = (
     "Do not add or remove any requirements. "
     "Output only the rewritten problem text with no preamble."
 )
+
 LOOP_TYPE_CONSTRAINT = (
     "You must use only while loops for all iteration. Do not use for loops."
 )
+
 FULL_COMMENTING_CONSTRAINT = (
     "Add a concise inline comment to every line of your solution explaining what that line does. "
     "Every non-blank line of code must have a comment."
 )
+
 DUMMY_VARIABLE_CONSTRAINT = (
     "At the start of your solution, declare a variable named _unused_flag and set it to True. "
     "Declare a variable named unused_itteration and set it to 0."
     "Do not use it these variables anywhere else in your solution."
 )
+
 GUARD_CLAUSE_CONSTRAINT = (
     "All conditional logic must be expressed as guard clauses (early returns) rather than nested if-else statements. "
     "Do not use nested if-else statements."
 )
+
 RECURSION_CONSTRAINT = (
     "You must implement your solution using recursion. "
     "Do not use any iterative loops (for or while)."
 )
-
-
-

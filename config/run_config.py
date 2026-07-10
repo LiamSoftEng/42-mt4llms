@@ -18,7 +18,7 @@ CONFIG = {
     "mr_only": False,
     "run_tests": True,
     "repeats": False,
-    "resume": True,
+    "resume": False,
 }
 
 

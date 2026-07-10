@@ -6,6 +6,7 @@ from metamorphic.relations.mrs import (
     MR4,
     MR5,
     MR6,
+    MR7,
     MR8,
     MR9,
     MR10,
@@ -14,7 +15,6 @@ from metamorphic.relations.mrs import (
     MR13,
     MR14,
     MR15,
-    MR16,
 )
 
 RELATIONS = {
@@ -23,16 +23,15 @@ RELATIONS = {
     2:  {"class": MR2,  "name": "redundant_context",              "target": "I",  "description": "Insert a related sentence which has no effect on the solution."},
     3:  {"class": MR3,  "name": "format_structural_equivalence",  "target": "PD", "description": "Convert the prompt into a structured bulleted list."},
     4:  {"class": MR4,  "name": "persona_role_prompting",         "target": "I",  "description": "Prepend a persona to the prompt."},
-    5:  {"class": MR5,  "name": "polarity_negative_formulation",  "target": "I",  "description": "Rewrite a return constraint into an equivalent negative form."},
+    5:  {"class": MR5,  "name": "polarity_negative_formulation",  "target": "PD", "description": "LLM-assisted rewrite of the return/output requirement into an equivalent negative form."},
     6:  {"class": MR6,  "name": "identifier_explicit_naming",     "target": "I",  "description": "Add explicit internal naming constraints for variables."},
-    8:  {"class": MR8,  "name": "order_requirement_permutation",  "target": "PD", "description": "Permute the order of independent constraints."},
-    # New ones
-    9:  {"class": MR9,  "name": "remove_sentences",          "target": "PD", "description": "Remove the nth line from the prompt."},
-    10: {"class": MR10, "name": "antonym_substitution",      "target": "PD", "description": "LLM-assisted substitution of key terms with antonyms, rewriting surrounding logic to remain equivalent."},
-    11: {"class": MR11, "name": "synonym_substitution",      "target": "PD", "description": "LLM-assisted substitution of key terms in the question with synonyms while preserving semantics."},
-    12: {"class": MR12, "name": "loop_while_only",           "target": "I",  "description": "Constrain the solution to use only while loops; no for loops permitted."},
-    13: {"class": MR13, "name": "full_commenting",           "target": "I",  "description": "Require an inline comment on every non-blank line of the solution."},
-    14: {"class": MR14, "name": "dummy_variable",            "target": "I",  "description": "Require declaration of an unused dummy variable (_unused_flag) at the start of the solution."},
-    15: {"class": MR15, "name": "guard_clause_conditionals", "target": "I",  "description": "Require all conditional logic to be expressed as guard clauses (early returns) rather than nested if-else."},
-    16: {"class": MR16, "name": "use_recursion",             "target": "I",  "description": "Require a recursive implementation; no iterative loops permitted."},
+    7:  {"class": MR7,  "name": "order_requirement_permutation",  "target": "PD", "description": "LLM-assisted reordering of independent constraints/sentences, preserving meaning."},
+    8:  {"class": MR8,  "name": "remove_sentences",               "target": "PD", "description": "Random removal of exactly one sentence."},
+    9:  {"class": MR9,  "name": "antonym_substitution",           "target": "PD", "description": "LLM-assisted substitution of key terms with antonyms, rewriting surrounding logic to remain equivalent."},
+    10: {"class": MR10, "name": "synonym_substitution",           "target": "PD", "description": "LLM-assisted substitution of key terms in the question with synonyms while preserving semantics."},
+    11: {"class": MR11, "name": "loop_while_only",                "target": "I",  "description": "Constrain the solution to use only while loops; no for loops permitted."},
+    12: {"class": MR12, "name": "full_commenting",                "target": "I",  "description": "Require an inline comment on every non-blank line of the solution."},
+    13: {"class": MR13, "name": "dummy_variable",                 "target": "I",  "description": "Require declaration of an unused dummy variable (_unused_flag) at the start of the solution."},
+    14: {"class": MR14, "name": "guard_clause_conditionals",      "target": "I",  "description": "Require all conditional logic to be expressed as guard clauses (early returns) rather than nested if-else."},
+    15: {"class": MR15, "name": "use_recursion",                  "target": "I",  "description": "Require a recursive implementation; no iterative loops permitted."},
 }

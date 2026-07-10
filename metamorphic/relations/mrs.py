@@ -1,4 +1,4 @@
-import re
+import re, random
 from metamorphic.relations.base_mr import BaseMR
 from metamorphic.relations import phrases
 from metamorphic.relations.phrases import _pick
@@ -47,70 +47,13 @@ def _to_bulleted(prompt: str) -> str:
         out.append(f"- {_strip_list_prefix(stripped)}")
     return "Structured prompt:\n" + "\n".join(out)
 
-
-def _is_list_line(text: str) -> bool:
-    if text.startswith("-") or text.startswith("*"):
-        return True
-    return re.match(r"^\d+[\.)]\s+", text) is not None
-
-
-def _permute_constraints(prompt: str) -> str:
-    lines = prompt.split("\n")
-    out = []
-    buffer = []
-    in_code = False
-
-    def flush_buffer() -> None:
-        if buffer:
-            out.extend(reversed(buffer))
-            buffer.clear()
-
-    for line in lines:
-        stripped = line.strip()
-        if stripped.startswith("```"):
-            flush_buffer()
-            in_code = not in_code
-            out.append(line)
-            continue
-        if in_code:
-            flush_buffer()
-            out.append(line)
-            continue
-        if _is_list_line(stripped):
-            buffer.append(line)
-        else:
-            flush_buffer()
-            out.append(line)
-
-    flush_buffer()
-    return "\n".join(out)
-
-
-def _rewrite_return_to_negative(prompt: str) -> str:
-    lines = prompt.split("\n")
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        match = re.match(r"^(Return|return)\s+(.*)$", stripped)
-        if match:
-            rest = match.group(2).rstrip(".")
-            prefix_len = len(line) - len(line.lstrip(" "))
-            prefix = line[:prefix_len]
-            lines[i] = f"{prefix}Do not return anything other than {rest}."
-            return "\n".join(lines)
-    return _insert_after_first_line(prompt, "Do not return anything other than the expected output.")
-
-
-#indexes second to last non-blank line, and removes it, as earlier sentences are often too important to remove
-def _remove_sentences(text: str) -> str:
-    """Remove the second-to-last line from the prompt, skipping past any blank lines."""
-    lines = text.split("\n")
-    idx = len(lines) - 2
-    while idx >= 0 and not lines[idx].strip():
-        idx -= 1
-    if idx >= 0:
-        del lines[idx]
-    return "\n".join(lines)
-
+def _remove_random_sentence(text: str) -> str:
+    """Split on sentence boundaries and delete one at random, preserving original spacing."""
+    sentences = re.findall(r"[^.!?]*[.!?]+\s*|[^.!?]+$", text)
+    candidates = [i for i, s in enumerate(sentences) if s.strip()]
+    if candidates:
+        del sentences[random.choice(candidates)]
+    return "".join(sentences)
 
 class MR0(BaseMR):
     target = "PD"
@@ -168,14 +111,14 @@ class MR4(BaseMR):
 
 
 class MR5(BaseMR):
-    target = "I"
+    target = "PD"
 
     @property
     def name(self) -> str:
         return "polarity_negative_formulation"
 
-    def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
-        return _rewrite_return_to_negative(prefix), suffix
+    def transform(self, text: str) -> str:
+        return mr_llm_transform(phrases.NEGATION_PROMPT, text)
 
 
 class MR6(BaseMR):
@@ -189,7 +132,7 @@ class MR6(BaseMR):
         return (_insert_after_first_line(prefix, phrases.make_identifier_constraint(phrases.WORDS)), suffix)
 
 
-class MR8(BaseMR):
+class MR7(BaseMR):
     target = "PD"
 
     @property
@@ -197,11 +140,10 @@ class MR8(BaseMR):
         return "order_requirement_permutation"
 
     def transform(self, text: str) -> str:
-        return _permute_constraints(text)
+        return mr_llm_transform(phrases.PERMUTATION_PROMPT, text)
 
 
-# New ones
-class MR9(BaseMR):
+class MR8(BaseMR):
     target = "PD"
 
     @property
@@ -209,10 +151,10 @@ class MR9(BaseMR):
         return "remove_sentences"
 
     def transform(self, text: str) -> str:
-        return _remove_sentences(text)
+        return _remove_random_sentence(text)
 
 
-class MR10(BaseMR):
+class MR9(BaseMR):
     target = "PD"
 
     @property
@@ -223,7 +165,7 @@ class MR10(BaseMR):
         return mr_llm_transform(phrases.ANTONYM_PROMPT_DIFF, text)
 
 
-class MR11(BaseMR):
+class MR10(BaseMR):
     target = "PD"
 
     @property
@@ -234,7 +176,7 @@ class MR11(BaseMR):
         return mr_llm_transform(phrases.SYNONYM_PROMPT, text)
 
 
-class MR12(BaseMR):
+class MR11(BaseMR):
     target = "I"
 
     @property
@@ -245,7 +187,7 @@ class MR12(BaseMR):
         return _insert_after_first_line(prefix, phrases.LOOP_TYPE_CONSTRAINT), suffix
 
 
-class MR13(BaseMR):
+class MR12(BaseMR):
     target = "I"
 
     @property
@@ -256,7 +198,7 @@ class MR13(BaseMR):
         return _insert_after_first_line(prefix, phrases.FULL_COMMENTING_CONSTRAINT), suffix
 
 
-class MR14(BaseMR):
+class MR13(BaseMR):
     target = "I"
 
     @property
@@ -267,7 +209,7 @@ class MR14(BaseMR):
         return _insert_after_first_line(prefix, phrases.DUMMY_VARIABLE_CONSTRAINT), suffix
 
 
-class MR15(BaseMR):
+class MR14(BaseMR):
     target = "I"
 
     @property
@@ -278,7 +220,7 @@ class MR15(BaseMR):
         return _insert_after_first_line(prefix, phrases.GUARD_CLAUSE_CONSTRAINT), suffix
 
 
-class MR16(BaseMR):
+class MR15(BaseMR):
     target = "I"
 
     @property
