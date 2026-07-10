@@ -3,6 +3,11 @@ import random
 def _pick(variants: list[str]) -> str:
     return random.choice(variants)
 
+def make_identifier_constraint(words: list[str]) -> str:
+    loop_var, output_var = random.sample(words, 2)
+    template = _pick(IDENTIFIER_CONSTRAINT)
+    return template.format(loop=loop_var, out=output_var)
+
 WORDS = [
     "whisper",
     "tmp",
@@ -18,7 +23,7 @@ WORDS = [
     "marble",
     "do_thing",
     "velvet",
-    "m2p"
+    "m2p",
 ]
 IRRELEVANT_CONTEXT = [
     "Fun fact: honey never spoils if stored properly.",
@@ -35,7 +40,7 @@ IRRELEVANT_CONTEXT = [
     "Researchers have long debated the optimal way to teach coding to beginners.",
     "A similar approach is sometimes used in supply chain optimization problems.",
     "Many students find this next part surprisingly tricky.",
-    "The silent astronaut carefully navigated her lunar rover through the crystal caverns."
+    "The silent astronaut carefully navigated her lunar rover through the crystal caverns.",
 ]
 REDUNDANT_CONTEXT = [
     "Note: This problem was originally presented in an international programming contest.",
@@ -52,7 +57,7 @@ REDUNDANT_CONTEXT = [
     "Do not return anything other than what the specification requires.",
     "Some languages require explicit type declarations, while others infer types automatically.",
     "Whitespace within expressions is generally ignored by most compilers and interpreters.",
-    "Definitions: iterate means loop through each element; concatenate means append one string to the end of another."
+    "Definitions: iterate means loop through each element; concatenate means append one string to the end of another.",
 ]
 PERSONAS = [
     "You are an expert senior software engineer writing production-grade code.",
@@ -68,9 +73,14 @@ PERSONAS = [
     "You are a full-stack developer balancing readability with performance across the entire code.",
     "You are a compiler engineer who thinks in terms of parsing, syntax trees, and formal language rules.",
     "You are a DevOps engineer writing scripts that must be robust and reliable in automated pipelines.",
-    "You are a research engineer implementing an algorithm straight from an academic paper, prioritizing correctness over polish."
+    "You are a research engineer implementing an algorithm straight from an academic paper, prioritizing correctness over polish.",
 ]
-IDENTIFIER_CONSTRAINT = "Use " + _pick(WORDS) + " as your loop variable and " + _pick(WORDS) + " as your output list."
+
+IDENTIFIER_CONSTRAINT = [
+    "Use {loop} as your loop variable and {out} as your output list.",
+    "Name your loop variable {loop} and your output list {out}.",
+]
+
 
 
 ANTONYM_PROMPT_DIFF = (

@@ -186,7 +186,7 @@ class MR6(BaseMR):
         return "identifier_explicit_naming"
 
     def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
-        return _insert_after_first_line(prefix, _pick(phrases.IDENTIFIER_CONSTRAINT)), suffix
+        return (_insert_after_first_line(prefix, phrases.make_identifier_constraint(phrases.WORDS)), suffix)
 
 
 class MR8(BaseMR):
@@ -220,7 +220,7 @@ class MR10(BaseMR):
         return "antonym_substitution"
 
     def transform(self, text: str) -> str:
-        return mr_llm_transform(_pick(phrases.ANTONYM_PROMPT_DIFF), text)
+        return mr_llm_transform(phrases.ANTONYM_PROMPT_DIFF, text)
 
 
 class MR11(BaseMR):
@@ -231,7 +231,7 @@ class MR11(BaseMR):
         return "synonym_substitution"
 
     def transform(self, text: str) -> str:
-        return mr_llm_transform(_pick(phrases.SYNONYM_PROMPT), text)
+        return mr_llm_transform(phrases.SYNONYM_PROMPT, text)
 
 
 class MR12(BaseMR):
@@ -242,7 +242,7 @@ class MR12(BaseMR):
         return "loop_while_only"
 
     def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
-        return _insert_after_first_line(prefix, _pick(phrases.LOOP_TYPE_CONSTRAINT)), suffix
+        return _insert_after_first_line(prefix, phrases.LOOP_TYPE_CONSTRAINT), suffix
 
 
 class MR13(BaseMR):
@@ -253,7 +253,7 @@ class MR13(BaseMR):
         return "full_commenting"
 
     def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
-        return _insert_after_first_line(prefix, _pick(phrases.FULL_COMMENTING_CONSTRAINT)), suffix
+        return _insert_after_first_line(prefix, phrases.FULL_COMMENTING_CONSTRAINT), suffix
 
 
 class MR14(BaseMR):
@@ -264,7 +264,7 @@ class MR14(BaseMR):
         return "dummy_variable"
 
     def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
-        return _insert_after_first_line(prefix, _pick(phrases.DUMMY_VARIABLE_CONSTRAINT)), suffix
+        return _insert_after_first_line(prefix, phrases.DUMMY_VARIABLE_CONSTRAINT), suffix
 
 
 class MR15(BaseMR):
@@ -275,7 +275,7 @@ class MR15(BaseMR):
         return "guard_clause_conditionals"
 
     def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
-        return _insert_after_first_line(prefix, _pick(phrases.GUARD_CLAUSE_CONSTRAINT)), suffix
+        return _insert_after_first_line(prefix, phrases.GUARD_CLAUSE_CONSTRAINT), suffix
 
 
 class MR16(BaseMR):
@@ -286,4 +286,4 @@ class MR16(BaseMR):
         return "use_recursion"
 
     def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
-        return _insert_after_first_line(prefix, _pick(phrases.RECURSION_CONSTRAINT)), suffix
+        return _insert_after_first_line(prefix, phrases.RECURSION_CONSTRAINT), suffix
