@@ -6,9 +6,9 @@ def _pick(variants: list[str]) -> str:
 
 
 def make_identifier_constraint(words: list[str]) -> str:
-    loop_var, output_var = random.sample(words, 2)
+    var1, var2 = random.sample(words, 2)
     template = _pick(IDENTIFIER_CONSTRAINT)
-    return template.format(loop=loop_var, out=output_var)
+    return template.format(VAR1=var1, VAR2=var2)
 
 
 WORDS = [
@@ -80,17 +80,15 @@ PERSONAS = [
 ]
 
 NEGATION_PROMPT = (
-    "Rewrite the programming problem below so that any statement describing what the "
-    "solution should return or output is expressed in an equivalent negative form "
-    "(e.g. 'return the maximum value' becomes 'do not return any value smaller than the maximum'). "
-    "Keep every constraint, input/output format, and the required answer identical — only the "
-    "phrasing of the return/output requirement should change. "
-    "Output only the rewritten problem text with no preamble."
+    "Rewrite only the return/output specification using a logically equivalent negative "
+    "formulation. Before rewriting, verify that the rewritten sentence is true if and only "
+    "if the original sentence is true. Do not modify any other part of the "
+    "problem. Output only the entire rewritten problem text."
 )
 
 IDENTIFIER_CONSTRAINT = [
-    "Use {loop} as your loop variable and {out} as your output list.",
-    "Name your loop variable {loop} and your output list {out}.",
+    "Use {VAR1} as your loop variable and {VAR2} as your output list.",
+    "Name your loop variable {VAR1} and your output list {VAR2}.",
 ]
 
 PERMUTATION_PROMPT = (
