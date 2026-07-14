@@ -8,7 +8,7 @@ def _pick(variants: list[str]) -> str:
 def make_identifier_constraint(words: list[str]) -> str:
     var1, var2 = random.sample(words, 2)
     template = _pick(IDENTIFIER_CONSTRAINT)
-    return template.format(VAR1=var1, VAR2=var2)
+    return template.format(variable1=var1, variable2=var2)
 
 
 WORDS = [
@@ -87,9 +87,22 @@ NEGATION_PROMPT = (
 )
 
 IDENTIFIER_CONSTRAINT = [
-    "Use {VAR1} as your loop variable and {VAR2} as your output list.",
-    "Name your loop variable {VAR1} and your output list {VAR2}.",
-]
+    "Use {variable1} as your loop variable and {variable2} as your output list.",
+    "Your loop variable must be named {variable1} and your result variable must be named {variable2}.",
+    "It is mandatory to name the counter variable {variable1} and the output variable {variable2}.",
+    "Name your helper variable {variable1} and its return value {variable2}.",
+    "Call your temporary variable {variable1} and your final answer {variable2}.",
+    "The input variable should be named {variable1}; the output variable should be named {variable2}.",
+    "Set the flag variable to {variable1} and the buffer variable to {variable2}.",
+    "Your accumulator must be named {variable1}, and your index variable must be named {variable2}.",
+    "Name your first value {variable1} and your second value {variable2}.",
+    "Call your main variable {variable1} and your supporting variable {variable2}.",
+    "The primary variable should be called {variable1}; the secondary variable should be called {variable2}.",
+    "Set the string variable to {variable1} and the secondary variable to {variable2}.",
+    "Strictly use {variable1} for the sum variable and {variable2} for the average variable, with no exceptions.",
+    "Your storage variable must be called {variable1}, and your key variable must be called {variable2}.",
+    "Name the function {variable1} and its base variable {variable2}.",
+    ]
 
 PERMUTATION_PROMPT = (
     "Rewrite the programming problem below by reordering independent constraints, requirements, "
@@ -124,7 +137,10 @@ SYNONYM_PROMPT = (
 )
 
 LOOP_TYPE_CONSTRAINT = (
-    "You must use only while loops for all iteration. Do not use for loops."
+    "You must use only while loops for all iteration. Do not use for loops.",
+    "You must use only for loops for all iteration. Do not use while loops.",
+    "You must use nested loops to solve this problem. A single loop is not allowed.",
+    "You must use only a single loop with no nesting. Nested loops are not allowed.",
 )
 
 FULL_COMMENTING_CONSTRAINT = (
@@ -133,9 +149,21 @@ FULL_COMMENTING_CONSTRAINT = (
 )
 
 DUMMY_VARIABLE_CONSTRAINT = (
-    "At the start of your solution, declare a variable named _unused_flag and set it to True. "
-    "Declare a variable named unused_itteration and set it to 0."
-    "Do not use it these variables anywhere else in your solution."
+    "At the start of your solution, declare a variable named _unused_flag and set it to True. Declare a variable named unused_iteration and set it to 0. Do not use these variables anywhere else in your solution.",
+    "Before writing any logic, declare a variable named _dummy_check and set it to False. Declare a variable named _placeholder_count and set it to 0. Do not use these variables anywhere else in your code.",
+    "At the top of your solution, add a variable _skip_marker set to None and a variable _reserved_slot set to -1. Do not reference either variable again.",
+    "Declare two unused variables at the beginning of your solution: _idle_state set to True and _padding_value set to 0. Neither should appear anywhere else in the code.",
+    "As the first lines of your solution, initialize _noop_flag to False and _spare_index to 0. These declarations must remain unused for the rest of your code.",
+    "Your solution must begin with the declaration of _sentinel_flag (set to True) and _extra_counter (set to 1). Do not use these variables in any subsequent logic.",
+    "Include _placeholder_bool set to False and _filler_number set to 99 at the start of your code. These must not be referenced or used anywhere else.",
+    "At the beginning of your solution, create a variable _stub_flag with the value True and a variable _reserve_count with the value 0. Leave both unused for the remainder of the solution.",
+    "First, declare _inactive_marker as None and _buffer_index as -1. Do not use either variable elsewhere in your solution.",
+    "Add two dummy declarations at the start of your solution: _unused_toggle = False and _slack_variable = 0. These variables should not be used anywhere else.",
+    "At the very beginning of your code, declare _dormant_flag and set it to True, and declare _padding_counter and set it to 5. Do not use these anywhere else in your solution.",
+    "Your code must start with two unused variables: _quiet_flag set to False and _phantom_index set to -1. Neither variable should be used again.",
+    "Declare _idle_marker set to None and _spare_counter set to 0 before any other code. These must remain unreferenced for the rest of the solution.",
+    "At the top of your solution, initialize _hollow_flag to True and _extra_slot to 1. Do not use these variables anywhere else in your code.",
+    "Begin your solution by declaring _void_flag set to False and _reserve_index set to 0. These variables must not be used anywhere else in the solution.",
 )
 
 GUARD_CLAUSE_CONSTRAINT = (

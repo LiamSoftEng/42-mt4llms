@@ -184,7 +184,7 @@ class MR11(BaseMR):
         return "loop_while_only"
 
     def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
-        return _insert_after_first_line(prefix, phrases.LOOP_TYPE_CONSTRAINT), suffix
+        return _insert_after_first_line(prefix, _pick(phrases.LOOP_TYPE_CONSTRAINT)), suffix
 
 
 class MR12(BaseMR):
