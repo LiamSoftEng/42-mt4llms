@@ -177,7 +177,7 @@ RECURSION_CONSTRAINT = (
 )
 
 NO_BUILTIN_LIBS = (
-    "You must not import or use any standard library modules; implement everything from scratch using only core language syntax.",
+    "You must not import or use any standard library modules; implement everything from scratch using only core language syntax."
 )
 
 LIBRARY_SUGGESTION_PROMPT = (

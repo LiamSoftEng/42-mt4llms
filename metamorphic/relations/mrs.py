@@ -284,4 +284,6 @@ class MR19(BaseMR):
         return "round_trip_paraphrase"
 
     def transform(self, text: str) -> str:
-        return mr_llm_transform(phrases.ROUND_TRIP_PROMPT, text)
+        llm_response = mr_llm_transform(phrases.ROUND_TRIP_PROMPT, text)
+        print(f"  [mr19] helper response: {llm_response}")
+        return llm_response
