@@ -262,6 +262,7 @@ class MR17(BaseMR):
         suggestion = mr_llm_transform(phrases.LIBRARY_SUGGESTION_PROMPT, text)
         library = _clean_library_name(suggestion)
         constraint = f"You must use Python's {library} in your solution."
+        print(f"  [mr17] helper suggested: {library}")
         return _insert_after_first_line(text, constraint)
 
 
