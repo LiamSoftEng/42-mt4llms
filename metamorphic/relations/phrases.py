@@ -175,3 +175,33 @@ RECURSION_CONSTRAINT = (
     "You must implement your solution using recursion. "
     "Do not use any iterative loops (for or while)."
 )
+
+NO_BUILTIN_LIBS = (
+    "You must not import or use any standard library modules; implement everything from scratch using only core language syntax.",
+)
+
+LIBRARY_SUGGESTION_PROMPT = (
+    "Given the following programming problem, name exactly one Python standard-library module or "
+    "built-in function that would be genuinely useful for solving it efficiently (for example: itertools, "
+    "collections, bisect, functools, heapq, math, re). "
+    "Respond with only the name, nothing else \u2014 no explanation, no punctuation, no surrounding text."
+)
+
+SCOPE_NARROWING = [
+    "Additional guarantee: none of the input values will ever be zero.",
+    "Additional guarantee: all numeric inputs are guaranteed to be strictly positive.",
+    "Additional guarantee: the input size is always a power of two.",
+    "Additional guarantee: the input contains no duplicate values.",
+    "Additional guarantee: all inputs fit within the range of a 32-bit signed integer.",
+    "Additional guarantee: the input is already sorted in non-decreasing order.",
+]
+
+ROUND_TRIP_PROMPT = (
+    "Solve the following programming problem internally, without showing any code. "
+    "Then write a clear, complete natural-language description of your solution approach, "
+    "as if writing a detailed docstring or explanation for someone else to implement. "
+    "Your description must fully specify the required input format, the required output format, "
+    "and the logic needed to solve the problem, such that someone reading only your description, "
+    "with no access to the original problem text, could write correct code from it alone. "
+    "Output only that description, with no preamble and no code."
+)

@@ -55,6 +55,13 @@ def _remove_random_sentence(text: str) -> str:
         del sentences[random.choice(candidates)]
     return "".join(sentences)
 
+def _clean_library_name(raw: str) -> str:
+    name = raw.strip().splitlines()[0].strip()
+    name = name.strip("`\"'. ")
+    if not name or len(name) > 40:
+        name = "a suitable standard library module"
+    return name
+
 class MR0(BaseMR):
     target = "PD"
 
@@ -229,3 +236,52 @@ class MR15(BaseMR):
 
     def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
         return _insert_after_first_line(prefix, phrases.RECURSION_CONSTRAINT), suffix
+
+
+class MR16(BaseMR):
+    target = "I"
+
+    @property
+    def name(self) -> str:
+        return "no_builtin_libraries"
+
+    def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
+        return _insert_after_first_line(prefix, phrases.NO_BUILTIN_LIBS), suffix
+
+
+class MR17(BaseMR):
+    """LLM-assisted: ask the helper which standard-library module fits this
+    problem, then require the model under test to use it."""
+    target = "PD"
+
+    @property
+    def name(self) -> str:
+        return "mandated_library"
+
+    def transform(self, text: str) -> str:
+        suggestion = mr_llm_transform(phrases.LIBRARY_SUGGESTION_PROMPT, text)
+        library = _clean_library_name(suggestion)
+        constraint = f"You must use Python's {library} in your solution."
+        return _insert_after_first_line(text, constraint)
+
+
+class MR18(BaseMR):
+    target = "PD"
+
+    @property
+    def name(self) -> str:
+        return "scope_input_narrowing"
+
+    def transform(self, text: str) -> str:
+        return _insert_after_first_line(text, _pick(phrases.SCOPE_NARROWING))
+
+
+class MR19(BaseMR):
+    target = "PD"
+
+    @property
+    def name(self) -> str:
+        return "round_trip_paraphrase"
+
+    def transform(self, text: str) -> str:
+        return mr_llm_transform(phrases.ROUND_TRIP_PROMPT, text)
