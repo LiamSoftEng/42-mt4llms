@@ -66,3 +66,11 @@ class BaseLLM(ABC):
     def model_name(self) -> str:
         """Identifier string for this model (used in results output)."""
         pass
+
+    @property
+    def last_finish_reason(self) -> str | None:
+        """Return the finish/stop reason for the most recent generate() call."""
+        return getattr(self, "_last_finish_reason", None)
+
+    def _set_last_finish_reason(self, reason: str | None) -> None:
+        self._last_finish_reason = reason

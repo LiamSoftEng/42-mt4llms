@@ -27,4 +27,5 @@ class OpenAIModel(BaseLLM):
 
         response = self._record_timed_call(lambda: self.client.chat.completions.create(**request))
         self._set_openai_compatible_usage(response)
+        self._set_last_finish_reason(response.choices[0].finish_reason)
         return response.choices[0].message.content

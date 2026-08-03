@@ -3,6 +3,7 @@ from metamorphic.relations.base_mr import BaseMR
 from metamorphic.relations import phrases
 from metamorphic.relations.phrases import _pick
 from llms.mr_helper import mr_llm_transform
+from evaluation.executor import extract_code
 
 
 def _insert_after_first_line(prompt: str, line: str) -> str:
@@ -265,7 +266,6 @@ class MR17(BaseMR):
         print(f"  [mr17] helper suggested: {library}")
         return _insert_after_first_line(text, constraint)
 
-
 class MR18(BaseMR):
     target = "PD"
 
@@ -278,6 +278,9 @@ class MR18(BaseMR):
 
 
 class MR19(BaseMR):
+    """LLM-assisted: have the helper solve the problem in one call, then, in a
+    separate call with no access to the original problem text, describe only
+    the resulting code. That description becomes the new problem statement."""
     target = "PD"
 
     @property
@@ -285,6 +288,12 @@ class MR19(BaseMR):
         return "round_trip_paraphrase"
 
     def transform(self, text: str) -> str:
-        llm_response = mr_llm_transform(phrases.ROUND_TRIP_PROMPT, text)
-        print(f"  [mr19] helper response: {llm_response}")
-        return llm_response
+        solve_response = mr_llm_transform(phrases.ROUND_TRIP_SOLVE_PROMPT, text)
+        code = extract_code(solve_response)
+        if not code:
+            # Helper failed to produce a fenced block — fall back to the raw
+            # response so the MR doesn't silently return an empty prompt.
+            code = solve_response
+        explanation = mr_llm_transform(phrases.ROUND_TRIP_EXPLAIN_PROMPT, code)
+        print(f"  [mr19] helper produced code:\n{code}\n  [mr19] helper produced explanation:\n{explanation}")
+        return explanation

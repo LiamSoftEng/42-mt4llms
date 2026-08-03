@@ -196,12 +196,18 @@ SCOPE_NARROWING = [
     "Additional guarantee: the input is already sorted in non-decreasing order.",
 ]
 
-ROUND_TRIP_PROMPT = (
-    "Solve the following programming problem internally, without showing any code. "
-    "Then write a clear, complete natural-language description of your solution approach, "
-    "as if writing a detailed docstring or explanation for someone else to implement. "
-    "Your description must fully specify the required input format, the required output format, "
-    "and the logic needed to solve the problem, such that someone reading only your description, "
-    "with no access to the original problem text, could write correct code from it alone. "
-    "Output only that description, with no preamble and no code."
+ROUND_TRIP_SOLVE_PROMPT = (
+    "Solve the following programming problem. Respond with only a single fenced "
+    "Python code block containing your complete solution, no explanation, no preamble."
+)
+
+ROUND_TRIP_EXPLAIN_PROMPT = (
+    "Here is a Python solution to a programming problem. Without seeing the original "
+    "problem statement, write a clear, complete natural-language description of what "
+    "this code does, as if writing a detailed docstring for someone else to implement "
+    "from scratch. Explicitly restate any input format, output format, or constraints "
+    "on the input that the code implies (through parsing, bounds checks, loop ranges, "
+    "or similar), so your description fully specifies the problem on its own. Someone "
+    "reading only your description, with no access to this code, must be able to write "
+    "correct code from it alone. Output only that description, with no preamble and no code."
 )

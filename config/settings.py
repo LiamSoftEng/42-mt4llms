@@ -41,7 +41,7 @@ GROK_MODEL = "openai/gpt-oss-120b"
 # GROK_MODEL = "qwen/qwen3-32b"
 
 # Generation params (TODO: adjust as needed)
-MR_HELPER_TOKENS = 2048
+MR_HELPER_TOKENS = 8192
 MAX_TOKENS = 8192
 TEMPERATURE = 0  # Deterministic outputs for reproducibility
 
