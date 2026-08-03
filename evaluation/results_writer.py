@@ -13,7 +13,10 @@ from evaluation.paths import build_results_dir, mr_folder_name, safe_name
 def write_base_content(results: list[dict], model_name: str, results_dir: str) -> Path:
     """
     Write base LLM content to results/<model>/base/base.json.
-    Strips followup fields.
+    Strips followup fields. Merges into any existing base.json rather
+    than overwriting it, since `results` here may only be a subset
+    (e.g. a single --mr run's questions), while base.json is meant to
+    be a running ledger across all runs.
     """
     FOLLOWUP_FIELDS = {
         "relation", "followup_instruction_prefix", "followup_instruction_suffix",
@@ -30,8 +33,22 @@ def write_base_content(results: list[dict], model_name: str, results_dir: str) -
         {k: v for k, v in entry.items() if k not in FOLLOWUP_FIELDS}
         for entry in results
     ]
+
+    existing: list[dict] = []
+    if out_path.exists():
+        try:
+            with open(out_path, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, list):
+                existing = [e for e in loaded if isinstance(e, dict)]
+        except (OSError, json.JSONDecodeError):
+            existing = []
+
+    incoming_ids = {e.get("question_id") for e in stripped}
+    merged = [e for e in existing if e.get("question_id") not in incoming_ids] + stripped
+
     with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(stripped, f, indent=2, ensure_ascii=False)
+        json.dump(merged, f, indent=2, ensure_ascii=False)
     print(f"  Base content  -> {out_path}")
     return out_path
 

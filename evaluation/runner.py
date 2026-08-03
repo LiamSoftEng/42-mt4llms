@@ -166,14 +166,30 @@ class PipelineRunner:
                 self.relation.name if self.relation else None,
                 self.relation_id,
             )
-            results = _load_existing_results(out_path) if self.resume else []
-            completed_ids = {
-                entry.get("question_id")
-                for entry in results
-                if _entry_complete_for_resume(entry, self.relation, self.mr_only)
-            }
-            if self.resume and completed_ids:
-                print(f"  Resume enabled: loaded {len(completed_ids)} completed code results from {out_path}")
+
+            # ── Loading behavior differs by file purpose ────────────────────────
+            # base.json (out_path when self.relation is None) is a running ledger
+            # of every base response ever generated — it always accumulates and
+            # is never wiped, regardless of --resume.
+            #
+            # A relation-specific output file (e.g. mr-01-....json) reflects a
+            # single experiment run — it keeps its original behavior: only
+            # loaded (and thus preserved) when --resume is passed, otherwise
+            # starts fresh each run.
+            if self.relation is None:
+                results = _load_existing_results(out_path)
+            else:
+                results = _load_existing_results(out_path) if self.resume else []
+
+            completed_ids = set()
+            if self.resume:
+                completed_ids = {
+                    entry.get("question_id")
+                    for entry in results
+                    if _entry_complete_for_resume(entry, self.relation, self.mr_only)
+                }
+                if completed_ids:
+                    print(f"  Resume enabled: loaded {len(completed_ids)} completed code results from {out_path}")
 
             token_totals: dict = {
                 "prompt_tokens": 0,
@@ -183,9 +199,28 @@ class PipelineRunner:
                 "reported": False,
             }
 
-            base_results = {}
+            # ── --mr-only: original behavior, unchanged ────────────────────────
+            # Loads base.json once, keyed by question_id. If an entry is missing
+            # here, the source response is simply left empty (no generation).
+            base_results: dict[str, dict] = {}
             if self.relation and self.mr_only:
                 base_results = _load_base_results(model.model_name)
+
+            # ── plain --mr (not mr-only): new behavior ──────────────────────────
+            # Loads base.json as a mutable list so missing entries can be
+            # generated on the fly and appended straight back to base.json.
+            # base.json always accumulates — it is loaded fresh here regardless
+            # of --resume, since it's a separate, persistent ledger file.
+            base_path = None
+            base_results_list: list[dict] = []
+            base_results_map: dict[str, dict] = {}
+            if self.relation and not self.mr_only:
+                base_path = build_results_path(model.model_name, None, None)
+                base_results_list = _load_existing_results(base_path)
+                base_results_map = {
+                    e["question_id"]: e for e in base_results_list
+                    if isinstance(e.get("question_id"), str) and e["question_id"]
+                }
 
             for i, sample in enumerate(self.dataset):
                 if self.resume and sample["question_id"] in completed_ids:
@@ -197,8 +232,9 @@ class PipelineRunner:
 
                 question = build_code_question(sample)
                 prompt = build_prompt(question)
+                qid = sample["question_id"]
 
-                print(f"  [{i+1}/{len(self.dataset)}] {sample['question_id']} ({sample['difficulty']})", end=" ... ")
+                print(f"  [{i+1}/{len(self.dataset)}] {qid} ({sample['difficulty']})", end=" ... ")
 
                 # ── Source response ──────────────────────────────────────────
                 response = ""
@@ -206,8 +242,101 @@ class PipelineRunner:
                 error = ""
                 usage = None
                 llm_call_time: float | None = None
+                prompt_tokens = completion_tokens = total_tokens = thinking_tokens = None
+                token_efficiency: float | None = None
 
-                if not (self.relation and self.mr_only):
+                if self.relation and self.mr_only:
+                    # Original behavior: reuse base entry if present, otherwise
+                    # leave source response empty (no generation happens here).
+                    base_entry = base_results.get(qid)
+                    if base_entry:
+                        response = base_entry.get("response", "")
+                        response_samples = base_entry.get("response_samples") or ([response] if response else [])
+                        error = base_entry.get("error", "")
+                        llm_call_time = base_entry.get("llm_call_time")
+                        prompt_tokens = base_entry.get("prompt_tokens")
+                        completion_tokens = base_entry.get("completion_tokens")
+                        total_tokens = base_entry.get("total_tokens")
+                        thinking_tokens = base_entry.get("thinking_tokens")
+                        token_efficiency = base_entry.get("token_efficiency")
+                        print("[base exists] ", end="")
+                    else:
+                        print("[base missing] ", end="")
+
+                elif self.relation and not self.mr_only:
+                    # New behavior: check base.json first; generate + persist
+                    # only if this question isn't already there.
+                    base_entry = base_results_map.get(qid)
+
+                    if base_entry and _entry_has_code(base_entry, "response"):
+                        response = base_entry.get("response", "")
+                        response_samples = base_entry.get("response_samples") or ([response] if response else [])
+                        error = base_entry.get("error", "")
+                        llm_call_time = base_entry.get("llm_call_time")
+                        prompt_tokens = base_entry.get("prompt_tokens")
+                        completion_tokens = base_entry.get("completion_tokens")
+                        total_tokens = base_entry.get("total_tokens")
+                        thinking_tokens = base_entry.get("thinking_tokens")
+                        token_efficiency = base_entry.get("token_efficiency")
+                        print("[base exists] ", end="")
+                    else:
+                        for repeat_index in range(self.prompt_repeats):
+                            try:
+                                current_response = model.generate(prompt)
+                                current_usage = model.last_usage
+                                current_call_time = model.last_call_time
+                            except Exception as e:
+                                current_response = ""
+                                current_usage = None
+                                current_call_time = None
+                                if repeat_index == 0:
+                                    error = str(e)
+
+                            response_samples.append(current_response)
+                            if repeat_index == 0:
+                                response = current_response
+                                usage = current_usage
+                                llm_call_time = current_call_time
+                            _accumulate_usage(token_totals, current_usage)
+                            if repeat_index < self.prompt_repeats - 1:
+                                time.sleep(self.delay)
+
+                        prompt_tokens, completion_tokens, total_tokens, thinking_tokens = _extract_usage(usage)
+                        if thinking_tokens and completion_tokens:
+                            token_efficiency = round(completion_tokens / thinking_tokens, 6)
+
+                        base_entry_obj = asdict(LLMResult(
+                            question_id=qid,
+                            question_title=sample["question_title"],
+                            difficulty=sample["difficulty"],
+                            platform=sample["platform"],
+                            model_name=model.model_name,
+                            instruction_prefix=INSTRUCTION_PREFIX,
+                            instruction_suffix=INSTRUCTION_SUFFIX,
+                            question=question,
+                            response=response,
+                            response_samples=response_samples,
+                            public_test_cases=json.dumps(sample.get("public_test_cases", [])),
+                            private_test_cases=sample.get("private_test_cases", ""),
+                            metadata=json.dumps(sample.get("metadata", {})),
+                            error=error,
+                            prompt_tokens=prompt_tokens,
+                            completion_tokens=completion_tokens,
+                            total_tokens=total_tokens,
+                            thinking_tokens=thinking_tokens,
+                            token_efficiency=token_efficiency,
+                            llm_call_time=llm_call_time,
+                        ))
+                        base_results_list = [
+                            e for e in base_results_list if e.get("question_id") != qid
+                        ]
+                        base_results_list.append(base_entry_obj)
+                        base_results_map[qid] = base_entry_obj
+                        self._save_to_path(base_path, base_results_list, quiet=True)
+                        print("[generated base] ", end="")
+
+                else:
+                    # No relation at all: plain base run, unchanged.
                     for repeat_index in range(self.prompt_repeats):
                         try:
                             current_response = model.generate(prompt)
@@ -229,18 +358,9 @@ class PipelineRunner:
                         if repeat_index < self.prompt_repeats - 1:
                             time.sleep(self.delay)
 
-                if self.relation and self.mr_only and base_results:
-                    base_entry = base_results.get(sample["question_id"])
-                    if base_entry:
-                        response = base_entry.get("response", "")
-                        response_samples = base_entry.get("response_samples") or ([response] if response else [])
-                        error = base_entry.get("error", "")
-                        llm_call_time = base_entry.get("llm_call_time")
-
-                prompt_tokens, completion_tokens, total_tokens, thinking_tokens = _extract_usage(usage)
-                token_efficiency: float | None = None
-                if thinking_tokens and completion_tokens:
-                    token_efficiency = round(completion_tokens / thinking_tokens, 6)
+                    prompt_tokens, completion_tokens, total_tokens, thinking_tokens = _extract_usage(usage)
+                    if thinking_tokens and completion_tokens:
+                        token_efficiency = round(completion_tokens / thinking_tokens, 6)
 
                 # ── Followup response ────────────────────────────────────────
                 followup_question = ""
@@ -309,7 +429,7 @@ class PipelineRunner:
                     print(f"ok (repeats={self.prompt_repeats})" if self.prompt_repeats > 1 else "ok")
 
                 result_entry = asdict(LLMResult(
-                    question_id=sample["question_id"],
+                    question_id=qid,
                     question_title=sample["question_title"],
                     difficulty=sample["difficulty"],
                     platform=sample["platform"],
@@ -343,9 +463,9 @@ class PipelineRunner:
                     followup_token_efficiency=followup_token_efficiency,
                     followup_llm_call_time=followup_llm_call_time,
                 ))
-                results = [entry for entry in results if entry.get("question_id") != sample["question_id"]]
+                results = [entry for entry in results if entry.get("question_id") != qid]
                 results.append(result_entry)
-                completed_ids.add(sample["question_id"])
+                completed_ids.add(qid)
                 self._save_to_path(out_path, results, quiet=True)
 
                 time.sleep(self.delay)
