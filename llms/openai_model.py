@@ -21,7 +21,7 @@ class OpenAIModel(BaseLLM):
             # request["temperature"] = TEMPERATURE
         if self._model_name.startswith("gpt-5"):
             request["max_completion_tokens"] = MAX_TOKENS
-            request["reasoning_effort"] = "low"
+            request["reasoning_effort"] = "medium"
         else:
             request["max_tokens"] = MAX_TOKENS
 
