@@ -181,10 +181,10 @@ NO_BUILTIN_LIBS = (
 )
 
 LIBRARY_SUGGESTION_PROMPT = (
-    "Given the following programming problem, name exactly one Python standard-library module or "
-    "built-in function that would be genuinely useful for solving it efficiently (for example: itertools, "
-    "collections, bisect, functools, heapq, math, re). "
-    "Respond with only the name, nothing else \u2014 no explanation, no punctuation, no surrounding text."
+    "Given the following programming problem, name exactly one Python standard-library module "
+    "that would be genuinely useful for solving it efficiently (for example: itertools, "
+    "bisect, functools). "
+    "Respond with only the name, nothing else no explanation, no punctuation, no surrounding text."
 )
 
 SCOPE_NARROWING = [
