@@ -214,7 +214,7 @@ class MR13(BaseMR):
         return "dummy_variable"
 
     def transform(self, prefix: str, suffix: str) -> tuple[str, str]:
-        return _insert_after_first_line(prefix, phrases.DUMMY_VARIABLE_CONSTRAINT), suffix
+        return _insert_after_first_line(prefix, _pick(phrases.DUMMY_VARIABLE_CONSTRAINT)), suffix
 
 
 class MR14(BaseMR):
