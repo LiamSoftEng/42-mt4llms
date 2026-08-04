@@ -17,9 +17,9 @@ DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
 GROK_API_KEY = os.getenv("GROK_API_KEY")
 
 # Model names (TODO: change please, based on knowledge cutoffs + call costs)
-MR_HELPER_MODEL = "gpt-5-nano" #find fast, cheap model for MR helper, just putting gpt-5-nano for now
+MR_HELPER_MODEL = "gpt-5.6-luna" #find fast, cheap model for MR helper, just putting gpt-5-nano for now
 CLAUDE_MODEL = "claude-sonnet-4-6"
-OPENAI_MODEL = "gpt-5-nano"
+OPENAI_MODEL = "gpt-5.6-sol"
 GEMINI_MODEL = "gemini-2.5-flash"
 DEEPSEEK_MODEL = "google/gemma-2-2b-it"
 # DEEPSEEK_MODEL = "minimaxai/minimax-m2.7"
@@ -41,7 +41,7 @@ GROK_MODEL = "openai/gpt-oss-120b"
 # GROK_MODEL = "qwen/qwen3-32b"
 
 # Generation params (TODO: adjust as needed)
-MR_HELPER_TOKENS = 2048
+MR_HELPER_TOKENS = 8192
 MAX_TOKENS = 8192
 TEMPERATURE = 0  # Deterministic outputs for reproducibility
 
@@ -57,7 +57,7 @@ COST_TRACKING_PATH = os.getenv("COST_TRACKING_PATH", os.path.join(RESULTS_DIR, "
 # Cost tracking (USD per 1M tokens). Update these with current provider rates.
 COST_RATES_PER_MILLION = {
     CLAUDE_MODEL: {"prompt": 0.0, "completion": 0.0},
-    OPENAI_MODEL: {"prompt": 0.05, "completion": 0.40},
+    OPENAI_MODEL: {"prompt": 5, "completion": 30},
     GEMINI_MODEL: {"prompt": 0.0, "completion": 0.0},
     DEEPSEEK_MODEL: {"prompt": 0.0, "completion": 0.0},
     GROK_MODEL: {"prompt": 0.05, "completion": 0.40},

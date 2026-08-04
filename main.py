@@ -60,8 +60,9 @@ def parse_args():
     parser.add_argument(
         "--mr",
         type=int,
+        nargs="+",
         default=None,
-        help="Apply a metamorphic relation alongside the normal run. e.g. --mr 1",
+        help="Apply one or more metamorphic relations, run sequentially. e.g. --mr 1 4 9",
     )
     parser.add_argument(
         "--mr-only",
@@ -91,33 +92,43 @@ def main() -> int:
 
     dataset = load_livecode_bench(n_samples=args.n, after=args.after)
     models = [MODEL_CHOICES[name]() for name in args.models]
-    relation = get_relation(args.mr) if args.mr is not None else None
-    if args.mr_only and args.mr is None:
+
+    if args.mr_only and not args.mr:
         print("--mr-only requires --mr to be set")
         return 2
     if args.repeats < 1:
         print("--repeats must be at least 1")
         return 2
 
-    print(f"Running models: {[m.model_name for m in models]}, on metamorphic relation: {args.mr is not None}")
+    # None -> single base-only run. Otherwise run each MR id sequentially,
+    # reusing the same models/dataset for every relation.
+    mr_ids = args.mr if args.mr else [None]
 
-    runner = PipelineRunner(
-        models=models,
-        dataset=dataset,
-        relation=relation,
-        relation_id=args.mr,
-        mr_only=args.mr_only,
-        prompt_repeats=args.repeats,
-        resume=args.resume,
-    )
-    runner.run()
+    for mr_id in mr_ids:
+        relation = get_relation(mr_id) if mr_id is not None else None
 
-    if args.run_tests:
-        for model in models:
-            relation_name = relation.name if relation else None
-            exit_code = _run_tests(model.model_name, relation_name, args.mr, args.mr_only)
-            if exit_code != 0:
-                return exit_code
+        print(f"\n{'='*60}")
+        print(f"Running models: {[m.model_name for m in models]}, on metamorphic relation: {mr_id if mr_id is not None else 'None'}")
+        print(f"{'='*60}")
+
+        runner = PipelineRunner(
+            models=models,
+            dataset=dataset,
+            relation=relation,
+            relation_id=mr_id,
+            mr_only=args.mr_only,
+            prompt_repeats=args.repeats,
+            resume=args.resume,
+        )
+        runner.run()
+
+        if args.run_tests:
+            for model in models:
+                relation_name = relation.name if relation else None
+                exit_code = _run_tests(model.model_name, relation_name, mr_id, args.mr_only)
+                if exit_code != 0:
+                    return exit_code
+
     return 0
 
 if __name__ == "__main__":

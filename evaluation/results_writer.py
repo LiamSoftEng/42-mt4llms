@@ -10,10 +10,31 @@ from evaluation.report import generate_html_report
 from evaluation.paths import build_results_dir, mr_folder_name, safe_name
 
 
+def _merge_by_question_id(existing_path: Path, new_entries: list[dict]) -> list[dict]:
+    """Merge new_entries into whatever is already at existing_path, keyed by
+    question_id. New entries replace existing ones with the same id; anything
+    else already on disk is preserved."""
+    existing: list[dict] = []
+    if existing_path.exists():
+        try:
+            with open(existing_path, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, list):
+                existing = [e for e in loaded if isinstance(e, dict)]
+        except (OSError, json.JSONDecodeError):
+            existing = []
+
+    incoming_ids = {e.get("question_id") for e in new_entries}
+    return [e for e in existing if e.get("question_id") not in incoming_ids] + new_entries
+
+
 def write_base_content(results: list[dict], model_name: str, results_dir: str) -> Path:
     """
     Write base LLM content to results/<model>/base/base.json.
-    Strips followup fields.
+    Strips followup fields. Merges into any existing base.json rather
+    than overwriting it, since `results` here may only be a subset
+    (e.g. a single --mr run's questions), while base.json is meant to
+    be a running ledger across all runs.
     """
     FOLLOWUP_FIELDS = {
         "relation", "followup_instruction_prefix", "followup_instruction_suffix",
@@ -30,8 +51,11 @@ def write_base_content(results: list[dict], model_name: str, results_dir: str) -
         {k: v for k, v in entry.items() if k not in FOLLOWUP_FIELDS}
         for entry in results
     ]
+
+    merged = _merge_by_question_id(out_path, stripped)
+
     with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(stripped, f, indent=2, ensure_ascii=False)
+        json.dump(merged, f, indent=2, ensure_ascii=False)
     print(f"  Base content  -> {out_path}")
     return out_path
 
@@ -72,10 +96,16 @@ def write_followup_content(
     return out_path
 
 
-def write_results_json(metric_rows: list[dict], out_path: Path) -> None:
-    """Write per-problem metrics and pass/fail counts to a results JSON file."""
+def write_results_json(metric_rows: list[dict], out_path: Path, merge: bool = False) -> None:
+    """Write per-problem metrics and pass/fail counts to a results JSON file.
+
+    If merge=True, merges into any existing file at out_path by question_id
+    instead of overwriting it outright — used for base.results.json, which
+    is a running ledger across all --mr runs, not a per-run artifact.
+    """
+    rows = _merge_by_question_id(out_path, metric_rows) if merge else metric_rows
     with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(metric_rows, f, indent=2, ensure_ascii=False)
+        json.dump(rows, f, indent=2, ensure_ascii=False)
     print(f"  Results JSON  -> {out_path}")
 
 
@@ -140,7 +170,7 @@ def write_all_outputs(
             # Timing
             "llm_call_time": row.get("source_llm_call_time"),
         })
-    write_results_json(base_rows, base_results_path)
+    write_results_json(base_rows, base_results_path, merge=True)
 
     # ── Followup results JSON ────────────────────────────────────────────────
     followup_results_path = None

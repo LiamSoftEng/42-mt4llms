@@ -21,10 +21,11 @@ class OpenAIModel(BaseLLM):
             # request["temperature"] = TEMPERATURE
         if self._model_name.startswith("gpt-5"):
             request["max_completion_tokens"] = MAX_TOKENS
-            request["reasoning_effort"] = "low"
+            request["reasoning_effort"] = "medium"
         else:
             request["max_tokens"] = MAX_TOKENS
 
         response = self._record_timed_call(lambda: self.client.chat.completions.create(**request))
         self._set_openai_compatible_usage(response)
+        self._set_last_finish_reason(response.choices[0].finish_reason)
         return response.choices[0].message.content
