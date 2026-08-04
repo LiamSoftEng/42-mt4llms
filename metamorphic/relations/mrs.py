@@ -295,5 +295,4 @@ class MR19(BaseMR):
             # response so the MR doesn't silently return an empty prompt.
             code = solve_response
         explanation = mr_llm_transform(phrases.ROUND_TRIP_EXPLAIN_PROMPT, code)
-        print(f"  [mr19] helper produced code:\n{code}\n  [mr19] helper produced explanation:\n{explanation}")
         return explanation
