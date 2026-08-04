@@ -87,21 +87,11 @@ NEGATION_PROMPT = (
 )
 
 IDENTIFIER_CONSTRAINT = [
-    "Use {variable1} as your loop variable and {variable2} as your output list.",
-    "Your loop variable must be named {variable1} and your result variable must be named {variable2}.",
-    "It is mandatory to name the counter variable {variable1} and the output variable {variable2}.",
-    "Name your helper variable {variable1} and its return value {variable2}.",
     "Call your temporary variable {variable1} and your final answer {variable2}.",
     "The input variable should be named {variable1}; the output variable should be named {variable2}.",
-    "Set the flag variable to {variable1} and the buffer variable to {variable2}.",
-    "Your accumulator must be named {variable1}, and your index variable must be named {variable2}.",
     "Name your first value {variable1} and your second value {variable2}.",
     "Call your main variable {variable1} and your supporting variable {variable2}.",
     "The primary variable should be called {variable1}; the secondary variable should be called {variable2}.",
-    "Set the string variable to {variable1} and the secondary variable to {variable2}.",
-    "Strictly use {variable1} for the sum variable and {variable2} for the average variable, with no exceptions.",
-    "Your storage variable must be called {variable1}, and your key variable must be called {variable2}.",
-    "Name the function {variable1} and its base variable {variable2}.",
     ]
 
 PERMUTATION_PROMPT = (
