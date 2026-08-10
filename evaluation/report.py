@@ -338,35 +338,35 @@ def _build_section(base: dict, followup: dict, relation_name: str | None) -> dic
 
 
 _CSS = """
-  body {{ font-family: system-ui, sans-serif; margin: 2rem; background: #f8f9fa; color: #212529; font-size: 0.9rem; }}
-  h1 {{ font-size: 1.4rem; margin-bottom: 0.25rem; }}
-  .subtitle {{ color: #6c757d; font-size: 0.85rem; margin-bottom: 1.5rem; }}
+  body { font-family: system-ui, sans-serif; margin: 2rem; background: #f8f9fa; color: #212529; font-size: 0.9rem; }
+  h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
+  .subtitle { color: #6c757d; font-size: 0.85rem; margin-bottom: 1.5rem; }
 
-  .stats {{ display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 2rem; }}
-  .stat-box {{ background: white; border: 1px solid #dee2e6; border-radius: 8px; padding: 1rem 1.5rem; min-width: 170px; }}
-  .stat-label {{ font-size: 0.72rem; color: #6c757d; text-transform: uppercase; letter-spacing: 0.05em; }}
-  .stat-value {{ font-size: 1.6rem; font-weight: 700; margin: 0.25rem 0; }}
-  .stat-sub {{ font-size: 0.78rem; color: #6c757d; }}
+  .stats { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 2rem; }
+  .stat-box { background: white; border: 1px solid #dee2e6; border-radius: 8px; padding: 1rem 1.5rem; min-width: 170px; }
+  .stat-label { font-size: 0.72rem; color: #6c757d; text-transform: uppercase; letter-spacing: 0.05em; }
+  .stat-value { font-size: 1.6rem; font-weight: 700; margin: 0.25rem 0; }
+  .stat-sub { font-size: 0.78rem; color: #6c757d; }
 
-  .table-wrap {{ overflow-x: auto; }}
-  table {{ width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); white-space: nowrap; }}
-  th {{ background: #343a40; color: white; padding: 0.5rem 0.7rem; text-align: left; font-size: 0.75rem; }}
-  td {{ padding: 0.5rem 0.7rem; border-bottom: 1px solid #dee2e6; font-size: 0.8rem; vertical-align: top; white-space: nowrap; }}
-  td:first-child {{ white-space: normal; min-width: 180px; }}
-  tr:last-child td {{ border-bottom: none; }}
-  tr:hover td {{ background: #f1f3f5; }}
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); white-space: nowrap; }
+  th { background: #343a40; color: white; padding: 0.5rem 0.7rem; text-align: left; font-size: 0.75rem; }
+  td { padding: 0.5rem 0.7rem; border-bottom: 1px solid #dee2e6; font-size: 0.8rem; vertical-align: top; white-space: nowrap; }
+  td:first-child { white-space: normal; min-width: 180px; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: #f1f3f5; }
 
-  code {{ font-size: 0.75rem; color: #e83e8c; }}
-  small {{ color: #6c757d; font-size: 0.72rem; }}
-  .tag {{ display: inline-block; background: #e9ecef; border-radius: 4px; padding: 0.1rem 0.4rem; font-size: 0.7rem; color: #495057; margin-right: 2px; }}
+  code { font-size: 0.75rem; color: #e83e8c; }
+  small { color: #6c757d; font-size: 0.72rem; }
+  .tag { display: inline-block; background: #e9ecef; border-radius: 4px; padding: 0.1rem 0.4rem; font-size: 0.7rem; color: #495057; margin-right: 2px; }
 
-  .badge {{ display: inline-block; border-radius: 4px; padding: 0.12rem 0.45rem; font-size: 0.72rem; font-weight: 600; }}
-  .holds {{ background: #d1e7dd; color: #0f5132; }}
-  .violated {{ background: #f8d7da; color: #842029; }}
-  .na {{ background: #e9ecef; color: #6c757d; }}
+  .badge { display: inline-block; border-radius: 4px; padding: 0.12rem 0.45rem; font-size: 0.72rem; font-weight: 600; }
+  .holds { background: #d1e7dd; color: #0f5132; }
+  .violated { background: #f8d7da; color: #842029; }
+  .na { background: #e9ecef; color: #6c757d; }
 
-  .delta-pos {{ color: #198754; }}
-  .delta-neg {{ color: #dc3545; }}
+  .delta-pos { color: #198754; }
+  .delta-neg { color: #dc3545; }
 """
 
 
@@ -432,15 +432,18 @@ def generate_html_report(
     _write_html_report(base_results_path, followup_results_path, out_path, model_name, relation_name)
     print(f"  HTML report -> {out_path}")
 
+_MERGED_CSS = """
+  .toc { background: white; border: 1px solid #dee2e6; border-radius: 8px; padding: 1rem 1.5rem; margin-bottom: 2rem; }
+  .toc strong { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.05em; color: #6c757d; }
+  .toc ul { columns: 3; column-gap: 2rem; margin: 0.6rem 0 0; padding-left: 1.1rem; list-style: disc; }
+  .toc li { margin-bottom: 0.3rem; font-size: 0.85rem; break-inside: avoid; }
+  .toc a { color: #0d6efd; text-decoration: none; }
+  .toc a:hover { text-decoration: underline; }
 
-def _extract_body(html: str) -> str | None:
-    match = re.search(r"<body>(.*)</body>", html, re.DOTALL)
-    return match.group(1) if match else None
-
-
-def _extract_style(html: str) -> str:
-    match = re.search(r"<style>(.*?)</style>", html, re.DOTALL)
-    return match.group(1).strip() if match else ""
+  .report-section { margin-top: 3rem; padding-top: 1.75rem; border-top: 3px solid #343a40; }
+  .report-section:first-of-type { margin-top: 0; padding-top: 0; border-top: none; }
+  .report-section h2 { font-size: 1.2rem; margin: 0 0 1rem; color: #212529; }
+"""
 
 
 def generate_merged_html_report(
@@ -449,57 +452,80 @@ def generate_merged_html_report(
     out_path: Path | None = None,
 ) -> Path:
     """
-    Build a single merged report (results/<model>/all.html) by concatenating
-    the already-generated individual HTML reports for the model (base.html +
-    every mr-*.html). Each section is the verbatim <body> content of its
-    individual report, so the styling is identical. The shared stylesheet is
-    taken from the first individual report.
+    Build a single merged report (results/<model>/all.html) with one clearly
+    labeled, visually separated section per relation (base + every mr-*),
+    plus a table of contents linking to each section.
 
-    Individual reports are refreshed from their results JSON first so the
-    merged document always reflects the current data and current styling.
+    Sections are built directly from each run's results JSON via
+    _build_section(), the same function individual per-run reports use, so
+    structure and styling stay identical and in sync automatically. This
+    does NOT read back already-rendered HTML files, unlike the previous
+    approach, which regex-extracted and stripped headers from individual
+    report bodies and left the merged page with no section markers at all.
     """
     model_dir = Path(results_dir) / safe_name(model_name)
     out_path = out_path or model_dir / "all.html"
 
     base_results = model_dir / "base" / "base.results.json"
+    base = _load_by_id(base_results) if base_results.exists() else {}
+
+    # Still write the individual per-run HTML reports as standalone artifacts
+    # (base.html, mr-XX-name.html) — just no longer used as an input here.
     if base_results.exists():
         _write_html_report(base_results, None, model_dir / "base" / "base.html", model_name, None)
 
-    report_files: list[Path] = []
+    sections: list[tuple[str, str, dict]] = []  # (anchor_id, label, section_dict)
+
+    if base:
+        sections.append(("base", "Base (no MR)", _build_section(base, {}, None)))
+
     if model_dir.exists():
         for folder in sorted(p for p in model_dir.iterdir() if p.is_dir() and p.name.startswith("mr-")):
             flw_results = folder / "followup.results.json"
-            if flw_results.exists():
-                relation_name = _relation_name_from_folder(folder.name)
-                _write_html_report(
-                    base_results, flw_results, folder / f"{folder.name}.html", model_name, relation_name
-                )
-            html_file = folder / f"{folder.name}.html"
-            if html_file.exists():
-                report_files.append(html_file)
+            if not flw_results.exists():
+                continue
+            followup = _load_by_id(flw_results)
+            if not followup:
+                continue
+            relation_name = _relation_name_from_folder(folder.name)
 
-    base_html = model_dir / "base" / "base.html"
-    if base_html.exists():
-        report_files.insert(0, base_html)
+            # Still write the individual per-run report as a standalone artifact.
+            _write_html_report(
+                base_results, flw_results, folder / f"{folder.name}.html", model_name, relation_name
+            )
 
-    if not report_files:
-        print(f"  No HTML reports found to merge for {model_name}")
+            section = _build_section(base, followup, relation_name)
+            sections.append((folder.name, f"MR: {relation_name}", section))
+
+    if not sections:
+        print(f"  No results found to merge for {model_name}")
         return out_path
 
-    style = ""
-    bodies: list[str] = []
-    for path in report_files:
-        html = path.read_text(encoding="utf-8")
-        if not style:
-            style = _extract_style(html)
-        body = _extract_body(html)
-        if body is None:
-            continue
-        # All individual reports share the same <h1>; keep a single one at top.
-        body = re.sub(r"<h1>.*?</h1>", "", body, count=1, flags=re.DOTALL).strip()
-        bodies.append(f'<div style="margin-top: 2.5rem;">\n{body}\n</div>')
+    # ── Table of contents ────────────────────────────────────────────────────
+    toc_items = "\n".join(
+        f'    <li><a href="#{anchor}">{label}</a></li>'
+        for anchor, label, _ in sections
+    )
+    toc_html = f'<nav class="toc"><strong>Sections</strong><ul>\n{toc_items}\n  </ul></nav>'
 
-    content = "\n".join(bodies)
+    # ── Section bodies ───────────────────────────────────────────────────────
+    section_blocks = []
+    for anchor, label, section in sections:
+        section_blocks.append(f"""
+<section id="{anchor}" class="report-section">
+  <h2>{label}</h2>
+  <div class="stats">
+    {section["stats_html"]}
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>{section["table_headers"]}</tr></thead>
+      <tbody>{section["rows_html"]}</tbody>
+    </table>
+  </div>
+</section>""")
+
+    content = "\n".join(section_blocks)
 
     merged = f"""<!DOCTYPE html>
 <html lang="en">
@@ -507,11 +533,13 @@ def generate_merged_html_report(
 <meta charset="UTF-8">
 <title>MT Report — {model_name}</title>
 <style>
-{style}
+{_CSS}
+{_MERGED_CSS}
 </style>
 </head>
 <body>
 <h1>MT Report — {model_name}</h1>
+{toc_html}
 {content}
 </body>
 </html>"""
