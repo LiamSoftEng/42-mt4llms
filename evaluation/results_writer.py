@@ -243,10 +243,63 @@ def write_all_outputs(
     )
 
 
+def _check_metric_violations(base_row: dict, followup_row: dict) -> dict:
+    """
+    Compare base vs followup metric values against METRIC_VARIANCE_THRESHOLDS.
+
+    Every metric except code_sim is checked as a max-allowed |delta| between
+    base and followup. code_sim is checked as a minimum allowed value on the
+    followup alone, since there's no base code_sim to diff against.
+
+    Returns a dict of {metric_name: {"base":..., "followup":..., "delta":...,
+    "threshold":...}} for every metric that breached its threshold. Metrics
+    missing on either side, or with no configured threshold, are skipped.
+    """
+    from config.settings import METRIC_VARIANCE_THRESHOLDS, get_metric_threshold
+
+    question_id = followup_row.get("question_id") or base_row.get("question_id")
+    violations: dict = {}
+
+    for metric_name in METRIC_VARIANCE_THRESHOLDS:
+        threshold = get_metric_threshold(metric_name, question_id)
+        if threshold is None:
+            continue
+
+        if metric_name == "code_sim":
+            followup_value = followup_row.get("code_sim")
+            if not isinstance(followup_value, (int, float)):
+                continue
+            if followup_value < threshold:
+                violations["code_sim"] = {
+                    "base": None,
+                    "followup": followup_value,
+                    "delta": None,
+                    "threshold": threshold,
+                }
+            continue
+
+        base_value = base_row.get(metric_name)
+        followup_value = followup_row.get(metric_name)
+        if not isinstance(base_value, (int, float)) or not isinstance(followup_value, (int, float)):
+            continue
+
+        delta = followup_value - base_value
+        if abs(delta) > threshold:
+            violations[metric_name] = {
+                "base": base_value,
+                "followup": followup_value,
+                "delta": delta,
+                "threshold": threshold,
+            }
+
+    return violations
+
+
 def write_violations_log(model_name: str, results_dir: str) -> Path:
     """
-    Scan each per-MR followup results file for violated metamorphic relations
-    (mr_holds == False) and write a single violations log for the model.
+    Scan each per-MR followup results file for violated metamorphic relations,
+    where a violation is either a failed test-verdict match (mr_holds == False)
+    or a metric delta exceeding its configured threshold (METRIC_VARIANCE_THRESHOLDS).
     Source-side metrics are joined from the base running ledger by question_id.
 
     The log is JSONL (one object per line), matching the helper_call_log
@@ -284,10 +337,17 @@ def write_violations_log(model_name: str, results_dir: str) -> Path:
             if not isinstance(rows, list):
                 continue
             for row in rows:
-                if not isinstance(row, dict) or row.get("mr_holds") is not False:
+                if not isinstance(row, dict):
                     continue
                 qid = row.get("question_id")
                 b = base_by_qid.get(qid, {})
+
+                test_violation = row.get("mr_holds") is False
+                metric_violations = _check_metric_violations(b, row)
+
+                if not test_violation and not metric_violations:
+                    continue
+
                 violations.append({
                     "model": model_name,
                     "relation": folder.name,
@@ -305,6 +365,8 @@ def write_violations_log(model_name: str, results_dir: str) -> Path:
                     "followup_tests_total": row.get("tests_total"),
                     "passes_same_tests": row.get("passes_same_tests"),
                     "code_sim": row.get("code_sim"),
+                    "test_violation": test_violation,
+                    "metric_violations": metric_violations,
                 })
 
     violations.sort(key=lambda v: (v.get("relation") or "", v.get("question_id") or ""))

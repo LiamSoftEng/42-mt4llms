@@ -12,13 +12,13 @@ from pathlib import Path
 
 CONFIG = {
     "models": ["openai"],
-    "n": 1,
+    "n": 3,
     "after": "2025-04-01",
-    "mr": [1,2],
+    "mr": 1,
     "mr_only": False,
     "run_tests": True,
     "repeats": False,
-    "resume": True,
+    "resume": False,
 }
 
 FLAG_NAMES = {
