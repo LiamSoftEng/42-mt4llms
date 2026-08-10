@@ -104,8 +104,17 @@ PERMUTATION_PROMPT = (
 
 ANTONYM_PROMPT_DIFF = (
     "Rewrite the programming problem below by substituting key terms with their antonyms "
-    "ensuring that the substitutions make sense in context"
-    "All numeric constraints, input/output formats, and the required answer must stay identical. "
+    "(e.g., 'maximum' -> 'minimum', 'increasing' -> 'decreasing', 'at least' -> 'at most'), "
+    "ensuring the substitutions make sense in context.\n\n"
+    "Critical: the rewritten problem must stay internally consistent. The antonym substitution "
+    "changes the problem's logic, so any sample inputs, sample outputs, or worked-example "
+    "explanations in the original problem will likely no longer be correct under the new "
+    "logic. For every example in the problem:\n"
+    "  - Recompute what the correct output actually is for that sample input, given the "
+    "new (antonym-substituted) problem statement — do not just copy the original output.\n"
+    "  - Rewrite any explanation of why that output is correct so it matches the new logic.\n"
+    "  - Sample input values may be kept as-is; only outputs and explanations need to change "
+    "to match the new problem.\n\n"
     "Output only the rewritten problem text with no preamble."
 )
 
