@@ -1,9 +1,14 @@
 """
 Generates an HTML comparison report from base and followup results files.
+The merged report (all.html) is composed from the verbatim bodies of the
+individual per-run HTML reports, so its styling is identical to theirs.
 """
 
 from pathlib import Path
 import json
+import re
+
+from evaluation.paths import safe_name
 
 
 def _fmt(value, digits: int = 4) -> str:
@@ -54,8 +59,22 @@ def _bool_badge(val: bool | None, true_label: str = "YES", false_label: str = "N
 def _load(path: Path) -> list[dict]:
     if not path or not path.exists():
         return []
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return []
+    if not isinstance(data, list):
+        return []
+    return [r for r in data if isinstance(r, dict)]
+
+
+def _load_by_id(path: Path) -> dict[str, dict]:
+    return {
+        r["question_id"]: r
+        for r in _load(path)
+        if isinstance(r.get("question_id"), str) and r["question_id"]
+    }
 
 
 def _fmt_tokens(prompt, completion, thinking) -> str:
@@ -91,17 +110,24 @@ def _row_total_time(b: dict, f: dict, has_mr: bool) -> float | None:
     return sum(nums) if nums else None
 
 
-def generate_html_report(
-    base_results_path: Path,
-    followup_results_path: Path | None,
-    out_path: Path,
-    model_name: str,
-    relation_name: str | None,
-) -> None:
-    base = {r["question_id"]: r for r in _load(base_results_path)}
-    followup = {r["question_id"]: r for r in _load(followup_results_path)} if followup_results_path else {}
-    has_mr = bool(followup) and bool(relation_name)
+def _relation_name_from_folder(folder_name: str) -> str:
+    """Extract the MR relation name from a folder like 'mr-04-persona_role_prompting'."""
+    if folder_name.startswith("mr-"):
+        parts = folder_name.split("-", 2)
+        if len(parts) == 3:
+            return parts[2]
+    return folder_name
 
+
+def _build_section(base: dict, followup: dict, relation_name: str | None) -> dict:
+    """
+    Render the stats boxes and data table for one relation run.
+
+    base and followup are dicts keyed by question_id (from base.results.json /
+    followup.results.json). Returns a dict with:
+        stats_html, table_headers, rows_html
+    """
+    has_mr = bool(followup) and bool(relation_name)
     all_ids = list(base.keys()) or list(followup.keys())
 
     # ── Aggregate stats ──────────────────────────────────────────────────────
@@ -261,6 +287,18 @@ def generate_html_report(
         <div class="stat-sub">LLM calls + test execution, all rows</div>
     </div>"""
 
+    stats_html = f"""
+        <div class="stat-box">
+            <div class="stat-label">Base pass rate</div>
+            <div class="stat-value">{base_pct}%</div>
+            <div class="stat-sub">{base_passed} passed / {base_failed} failed / {base_total} total</div>
+            <div class="stat-sub">Extractable: {extract_pct}% ({base_extractable}/{base_total})</div>
+        </div>
+        {followup_stat}
+        {mr_section}
+        {same_tests_stat}
+        {total_time_stat}"""
+
     # ── Table headers ────────────────────────────────────────────────────────
     if has_mr:
         table_headers = """
@@ -292,12 +330,14 @@ def generate_html_report(
             <th>Tokens / eff</th>
             <th>LLM / test time</th>"""
 
-    html = f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>MT Report — {model_name}</title>
-<style>
+    return {
+        "stats_html": stats_html,
+        "table_headers": table_headers,
+        "rows_html": rows_html,
+    }
+
+
+_CSS = """
   body {{ font-family: system-ui, sans-serif; margin: 2rem; background: #f8f9fa; color: #212529; font-size: 0.9rem; }}
   h1 {{ font-size: 1.4rem; margin-bottom: 0.25rem; }}
   .subtitle {{ color: #6c757d; font-size: 0.85rem; margin-bottom: 1.5rem; }}
@@ -327,34 +367,157 @@ def generate_html_report(
 
   .delta-pos {{ color: #198754; }}
   .delta-neg {{ color: #dc3545; }}
+"""
+
+
+def _render_document(model_name: str, relation_name: str | None, section: dict) -> str:
+    if relation_name:
+        subtitle = f"MR: {relation_name}"
+    else:
+        subtitle = "Base run — no MR applied"
+
+    content = (
+        '<div class="stats">\n'
+        f'{section["stats_html"]}\n'
+        "</div>\n"
+        '<div class="table-wrap">\n'
+        "<table>\n"
+        f'  <thead><tr>{section["table_headers"]}</tr></thead>\n'
+        f'  <tbody>{section["rows_html"]}</tbody>\n'
+        "</table>\n"
+        "</div>"
+    )
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MT Report — {model_name}</title>
+<style>
+{_CSS}
 </style>
 </head>
 <body>
 <h1>MT Report — {model_name}</h1>
-<div class="subtitle">{f"MR: {relation_name}" if relation_name else "Base run — no MR applied"}</div>
+<div class="subtitle">{subtitle}</div>
 
-<div class="stats">
-  <div class="stat-box">
-    <div class="stat-label">Base pass rate</div>
-    <div class="stat-value">{base_pct}%</div>
-    <div class="stat-sub">{base_passed} passed / {base_failed} failed / {base_total} total</div>
-    <div class="stat-sub">Extractable: {extract_pct}% ({base_extractable}/{base_total})</div>
-  </div>
-  {followup_stat}
-  {mr_section}
-  {total_time_stat}
-</div>
+{content}
+</body>
+</html>"""
 
-<div class="table-wrap">
-<table>
-  <thead><tr>{table_headers}</tr></thead>
-  <tbody>{rows_html}</tbody>
-</table>
-</div>
+
+def _write_html_report(
+    base_results_path: Path,
+    followup_results_path: Path | None,
+    out_path: Path,
+    model_name: str,
+    relation_name: str | None,
+) -> None:
+    base = _load_by_id(base_results_path)
+    followup = _load_by_id(followup_results_path) if followup_results_path else {}
+    section = _build_section(base, followup, relation_name)
+    html = _render_document(model_name, relation_name, section)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(html)
+
+
+def generate_html_report(
+    base_results_path: Path,
+    followup_results_path: Path | None,
+    out_path: Path,
+    model_name: str,
+    relation_name: str | None,
+) -> None:
+    _write_html_report(base_results_path, followup_results_path, out_path, model_name, relation_name)
+    print(f"  HTML report -> {out_path}")
+
+
+def _extract_body(html: str) -> str | None:
+    match = re.search(r"<body>(.*)</body>", html, re.DOTALL)
+    return match.group(1) if match else None
+
+
+def _extract_style(html: str) -> str:
+    match = re.search(r"<style>(.*?)</style>", html, re.DOTALL)
+    return match.group(1).strip() if match else ""
+
+
+def generate_merged_html_report(
+    model_name: str,
+    results_dir: str,
+    out_path: Path | None = None,
+) -> Path:
+    """
+    Build a single merged report (results/<model>/all.html) by concatenating
+    the already-generated individual HTML reports for the model (base.html +
+    every mr-*.html). Each section is the verbatim <body> content of its
+    individual report, so the styling is identical. The shared stylesheet is
+    taken from the first individual report.
+
+    Individual reports are refreshed from their results JSON first so the
+    merged document always reflects the current data and current styling.
+    """
+    model_dir = Path(results_dir) / safe_name(model_name)
+    out_path = out_path or model_dir / "all.html"
+
+    base_results = model_dir / "base" / "base.results.json"
+    if base_results.exists():
+        _write_html_report(base_results, None, model_dir / "base" / "base.html", model_name, None)
+
+    report_files: list[Path] = []
+    if model_dir.exists():
+        for folder in sorted(p for p in model_dir.iterdir() if p.is_dir() and p.name.startswith("mr-")):
+            flw_results = folder / "followup.results.json"
+            if flw_results.exists():
+                relation_name = _relation_name_from_folder(folder.name)
+                _write_html_report(
+                    base_results, flw_results, folder / f"{folder.name}.html", model_name, relation_name
+                )
+            html_file = folder / f"{folder.name}.html"
+            if html_file.exists():
+                report_files.append(html_file)
+
+    base_html = model_dir / "base" / "base.html"
+    if base_html.exists():
+        report_files.insert(0, base_html)
+
+    if not report_files:
+        print(f"  No HTML reports found to merge for {model_name}")
+        return out_path
+
+    style = ""
+    bodies: list[str] = []
+    for path in report_files:
+        html = path.read_text(encoding="utf-8")
+        if not style:
+            style = _extract_style(html)
+        body = _extract_body(html)
+        if body is None:
+            continue
+        # All individual reports share the same <h1>; keep a single one at top.
+        body = re.sub(r"<h1>.*?</h1>", "", body, count=1, flags=re.DOTALL).strip()
+        bodies.append(f'<div style="margin-top: 2.5rem;">\n{body}\n</div>')
+
+    content = "\n".join(bodies)
+
+    merged = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MT Report — {model_name}</title>
+<style>
+{style}
+</style>
+</head>
+<body>
+<h1>MT Report — {model_name}</h1>
+{content}
 </body>
 </html>"""
 
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
-        f.write(html)
-    print(f"  HTML report -> {out_path}")
+        f.write(merged)
+    print(f"  Merged HTML report -> {out_path}")
+    return out_path

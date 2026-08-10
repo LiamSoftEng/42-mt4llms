@@ -168,7 +168,7 @@ Available options:
 | `--out PATH` | Set the test log path. |
 | `--csv PATH` | Export the metrics table to CSV. |
 | `--followup-only` | Test the follow-up response as the primary response. |
-| `--write-outputs` | Write split content/results files and generate an HTML report. |
+| `--write-outputs` | Write split content/results files, generate the HTML report, and refresh the merged `all.html` + `violations.json`. |
 
 Examples:
 
@@ -236,10 +236,21 @@ results/<model>/
 |   |-- followup.results.json
 |   |-- mr-<id>-<relation>.html
 |   `-- mr-<id>-<relation>.tests.log
-`-- all_mrs/
-  |-- all_mrs.json
-  `-- all_mrs.tests.log
+|-- all_mrs/
+|   |-- all_mrs.json
+|   `-- all_mrs.tests.log
+|-- all.html              Merged HTML report of the base run + all MR runs
+`-- violations.json       Log of every MR violation (mr_holds == False)
 ```
+
+`all.html` and `violations.json` are consolidated automatically once testing
+finishes — at the end of `main.py --run-tests` (per model) and after every
+`runtests.py` run that uses `--write-outputs`. They are regenerated from
+whatever results exist on disk, so they stay up to date as runs are added.
+
+Each `violations.json` entry records the relation, question, source vs followup
+pass status and test counts, `passes_same_tests`, and code similarity for that
+violation.
 
 Test logs default to the input result filename with `.tests.log` appended. CSV output is written only when `--csv` is supplied.
 

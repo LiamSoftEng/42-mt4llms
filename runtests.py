@@ -510,6 +510,8 @@ def run_tests(
                 except ValueError:
                     pass
         write_all_outputs(results, metric_rows, model_name, relation_name, relation_id, RESULTS_DIR)
+        from evaluation.results_writer import write_consolidated_outputs
+        write_consolidated_outputs(model_name, RESULTS_DIR)
 
     print(f"{'='*60}")
 

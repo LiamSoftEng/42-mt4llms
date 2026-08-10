@@ -104,6 +104,7 @@ def main() -> int:
     # reusing the same models/dataset for every relation.
     mr_ids = args.mr if args.mr else [None]
 
+    exit_code = 0
     for mr_id in mr_ids:
         relation = get_relation(mr_id) if mr_id is not None else None
 
@@ -125,11 +126,20 @@ def main() -> int:
         if args.run_tests:
             for model in models:
                 relation_name = relation.name if relation else None
-                exit_code = _run_tests(model.model_name, relation_name, mr_id, args.mr_only)
-                if exit_code != 0:
-                    return exit_code
+                code = _run_tests(model.model_name, relation_name, mr_id, args.mr_only)
+                if code != 0 and exit_code == 0:
+                    exit_code = code
+            if exit_code != 0:
+                break
 
-    return 0
+    if args.run_tests:
+        from config.settings import RESULTS_DIR
+        from evaluation.results_writer import write_consolidated_outputs
+        for model in models:
+            print(f"\nConsolidating outputs for {model.model_name}")
+            write_consolidated_outputs(model.model_name, RESULTS_DIR)
+
+    return exit_code
 
 if __name__ == "__main__":
     raise SystemExit(main())

@@ -4,6 +4,7 @@ then triggers HTML report generation.
 """
 
 import json
+import time
 from pathlib import Path
 
 from evaluation.report import generate_html_report
@@ -240,3 +241,90 @@ def write_all_outputs(
         model_name=model_name,
         relation_name=relation_name,
     )
+
+
+def write_violations_log(model_name: str, results_dir: str) -> Path:
+    """
+    Scan each per-MR followup results file for violated metamorphic relations
+    (mr_holds == False) and write a single violations log for the model.
+    Source-side metrics are joined from the base running ledger by question_id.
+
+    The log is JSONL (one object per line), matching the helper_call_log
+    format, with a timestamp first on each record.
+    """
+    model_dir = Path(results_dir) / safe_name(model_name)
+    out_path = model_dir / "violations.json"
+
+    base_by_qid: dict[str, dict] = {}
+    base_path = model_dir / "base" / "base.results.json"
+    if base_path.exists():
+        try:
+            with open(base_path, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+            if isinstance(loaded, list):
+                base_by_qid = {
+                    e.get("question_id"): e
+                    for e in loaded
+                    if isinstance(e, dict) and isinstance(e.get("question_id"), str) and e["question_id"]
+                }
+        except (OSError, json.JSONDecodeError):
+            base_by_qid = {}
+
+    violations: list[dict] = []
+    if model_dir.exists():
+        for folder in sorted(p for p in model_dir.iterdir() if p.is_dir() and p.name.startswith("mr-")):
+            flw_path = folder / "followup.results.json"
+            if not flw_path.exists():
+                continue
+            try:
+                with open(flw_path, "r", encoding="utf-8") as f:
+                    rows = json.load(f)
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(rows, list):
+                continue
+            for row in rows:
+                if not isinstance(row, dict) or row.get("mr_holds") is not False:
+                    continue
+                qid = row.get("question_id")
+                b = base_by_qid.get(qid, {})
+                violations.append({
+                    "model": model_name,
+                    "relation": folder.name,
+                    "question_id": qid,
+                    "question_title": row.get("question_title"),
+                    "difficulty": row.get("difficulty"),
+                    "platform": row.get("platform"),
+                    "source_passed": b.get("passed"),
+                    "source_tests_passed": b.get("tests_passed"),
+                    "source_tests_failed": b.get("tests_failed"),
+                    "source_tests_total": b.get("tests_total"),
+                    "followup_passed": row.get("passed"),
+                    "followup_tests_passed": row.get("tests_passed"),
+                    "followup_tests_failed": row.get("tests_failed"),
+                    "followup_tests_total": row.get("tests_total"),
+                    "passes_same_tests": row.get("passes_same_tests"),
+                    "code_sim": row.get("code_sim"),
+                })
+
+    violations.sort(key=lambda v: (v.get("relation") or "", v.get("question_id") or ""))
+    model_dir.mkdir(parents=True, exist_ok=True)
+    now = time.time()
+    with open(out_path, "w", encoding="utf-8") as f:
+        for v in violations:
+            f.write(json.dumps({"timestamp": now, **v}, ensure_ascii=False) + "\n")
+    print(f"  Violations log -> {out_path} ({len(violations)} violations)")
+    return out_path
+
+
+def write_consolidated_outputs(model_name: str, results_dir: str) -> None:
+    """
+    Write the post-test consolidated outputs for a model:
+      - merged HTML report of base + all per-MR runs
+      - violations log
+    Safe to call repeatedly; reads whatever results exist on disk.
+    """
+    from evaluation.report import generate_merged_html_report
+
+    generate_merged_html_report(model_name, results_dir)
+    write_violations_log(model_name, results_dir)
