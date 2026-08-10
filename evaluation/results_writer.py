@@ -9,6 +9,7 @@ from pathlib import Path
 
 from evaluation.report import generate_html_report
 from evaluation.paths import build_results_dir, mr_folder_name, safe_name
+from evaluation.metric_violations import check_metric_violations
 
 
 def _merge_by_question_id(existing_path: Path, new_entries: list[dict]) -> list[dict]:
@@ -243,58 +244,6 @@ def write_all_outputs(
     )
 
 
-def _check_metric_violations(base_row: dict, followup_row: dict) -> dict:
-    """
-    Compare base vs followup metric values against METRIC_VARIANCE_THRESHOLDS.
-
-    Every metric except code_sim is checked as a max-allowed |delta| between
-    base and followup. code_sim is checked as a minimum allowed value on the
-    followup alone, since there's no base code_sim to diff against.
-
-    Returns a dict of {metric_name: {"base":..., "followup":..., "delta":...,
-    "threshold":...}} for every metric that breached its threshold. Metrics
-    missing on either side, or with no configured threshold, are skipped.
-    """
-    from config.settings import METRIC_VARIANCE_THRESHOLDS, get_metric_threshold
-
-    question_id = followup_row.get("question_id") or base_row.get("question_id")
-    violations: dict = {}
-
-    for metric_name in METRIC_VARIANCE_THRESHOLDS:
-        threshold = get_metric_threshold(metric_name, question_id)
-        if threshold is None:
-            continue
-
-        if metric_name == "code_sim":
-            followup_value = followup_row.get("code_sim")
-            if not isinstance(followup_value, (int, float)):
-                continue
-            if followup_value < threshold:
-                violations["code_sim"] = {
-                    "base": None,
-                    "followup": followup_value,
-                    "delta": None,
-                    "threshold": threshold,
-                }
-            continue
-
-        base_value = base_row.get(metric_name)
-        followup_value = followup_row.get(metric_name)
-        if not isinstance(base_value, (int, float)) or not isinstance(followup_value, (int, float)):
-            continue
-
-        delta = followup_value - base_value
-        if abs(delta) > threshold:
-            violations[metric_name] = {
-                "base": base_value,
-                "followup": followup_value,
-                "delta": delta,
-                "threshold": threshold,
-            }
-
-    return violations
-
-
 def write_violations_log(model_name: str, results_dir: str) -> Path:
     """
     Scan each per-MR followup results file for violated metamorphic relations,
@@ -343,7 +292,7 @@ def write_violations_log(model_name: str, results_dir: str) -> Path:
                 b = base_by_qid.get(qid, {})
 
                 test_violation = row.get("mr_holds") is False
-                metric_violations = _check_metric_violations(b, row)
+                metric_violations = check_metric_violations(b, row)
 
                 if not test_violation and not metric_violations:
                     continue
