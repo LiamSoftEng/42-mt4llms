@@ -58,11 +58,17 @@ def parse_args():
         help="Only include problems on or after this date. e.g. --after 2024-01-01",
     )
     parser.add_argument(
+        "--difficulty",
+        nargs="+",
+        choices=["easy", "medium", "hard"],
+        default=None,
+        help="Only include problems of these difficulties. e.g. --difficulty easy medium",
+    )
+    parser.add_argument(
         "--mr",
         type=int,
-        nargs="+",
         default=None,
-        help="Apply one or more metamorphic relations, run sequentially. e.g. --mr 1 4 9",
+        help="Apply a metamorphic relation alongside the normal run. e.g. --mr 1",
     )
     parser.add_argument(
         "--mr-only",
@@ -90,56 +96,36 @@ def parse_args():
 def main() -> int:
     args = parse_args()
 
-    dataset = load_livecode_bench(n_samples=args.n, after=args.after)
+    dataset = load_livecode_bench(n_samples=args.n, after=args.after, difficulty=args.difficulty)
     models = [MODEL_CHOICES[name]() for name in args.models]
-
-    if args.mr_only and not args.mr:
+    relation = get_relation(args.mr) if args.mr is not None else None
+    if args.mr_only and args.mr is None:
         print("--mr-only requires --mr to be set")
         return 2
     if args.repeats < 1:
         print("--repeats must be at least 1")
         return 2
 
-    # None -> single base-only run. Otherwise run each MR id sequentially,
-    # reusing the same models/dataset for every relation.
-    mr_ids = args.mr if args.mr else [None]
+    print(f"Running models: {[m.model_name for m in models]}, on metamorphic relation: {args.mr is not None}")
 
-    exit_code = 0
-    for mr_id in mr_ids:
-        relation = get_relation(mr_id) if mr_id is not None else None
-
-        print(f"\n{'='*60}")
-        print(f"Running models: {[m.model_name for m in models]}, on metamorphic relation: {mr_id if mr_id is not None else 'None'}")
-        print(f"{'='*60}")
-
-        runner = PipelineRunner(
-            models=models,
-            dataset=dataset,
-            relation=relation,
-            relation_id=mr_id,
-            mr_only=args.mr_only,
-            prompt_repeats=args.repeats,
-            resume=args.resume,
-        )
-        runner.run()
-
-        if args.run_tests:
-            for model in models:
-                relation_name = relation.name if relation else None
-                code = _run_tests(model.model_name, relation_name, mr_id, args.mr_only)
-                if code != 0 and exit_code == 0:
-                    exit_code = code
-            if exit_code != 0:
-                break
+    runner = PipelineRunner(
+        models=models,
+        dataset=dataset,
+        relation=relation,
+        relation_id=args.mr,
+        mr_only=args.mr_only,
+        prompt_repeats=args.repeats,
+        resume=args.resume,
+    )
+    runner.run()
 
     if args.run_tests:
-        from config.settings import RESULTS_DIR
-        from evaluation.results_writer import write_consolidated_outputs
         for model in models:
-            print(f"\nConsolidating outputs for {model.model_name}")
-            write_consolidated_outputs(model.model_name, RESULTS_DIR)
-
-    return exit_code
+            relation_name = relation.name if relation else None
+            exit_code = _run_tests(model.model_name, relation_name, args.mr, args.mr_only)
+            if exit_code != 0:
+                return exit_code
+    return 0
 
 if __name__ == "__main__":
     raise SystemExit(main())
