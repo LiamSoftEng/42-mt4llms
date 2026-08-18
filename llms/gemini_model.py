@@ -13,14 +13,21 @@ class GeminiModel(BaseLLM):
         return self._model_name
  
     def generate(self, prompt: str) -> str:
-        response = self.client.models.generate_content(
-            model=self._model_name,
-            contents=prompt,
-            config=types.GenerateContentConfig(
-                max_output_tokens=MAX_TOKENS,
-                temperature=TEMPERATURE,
-            ),
+        response = self._record_timed_call(
+            lambda: self.client.models.generate_content(
+                model=self._model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    max_output_tokens=MAX_TOKENS,
+                    temperature=TEMPERATURE,
+                ),
+            )
         )
+        candidates = getattr(response, "candidates", None) or []
+        finish_reason = getattr(candidates[0], "finish_reason", None) if candidates else None
+        if finish_reason is not None and not isinstance(finish_reason, str):
+            finish_reason = getattr(finish_reason, "name", None) or str(finish_reason)
+        self._set_last_finish_reason(finish_reason)
         usage = getattr(response, "usage_metadata", None)
         if usage is not None:
             prompt_tokens = getattr(usage, "prompt_token_count", None)

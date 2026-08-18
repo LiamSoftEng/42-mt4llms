@@ -11,20 +11,29 @@ from evaluation.metric_violations import check_metric_violations
 
 
 def format_value(value, digits: int = 4) -> str:
+    if value is None or value in (-1, -2):
+        return "N/A"
     if isinstance(value, float):
         return f"{value:.{digits}f}"
-    if value is None or value == -1:
-        return "N/A"
     return str(value)
 
 
 def format_decimal(value, digits: int = 4) -> str:
     """Format numeric terminal-table values with a fixed decimal precision."""
+    if value is None or value in (-1, -2):
+        return "N/A"
     return f"{value:.{digits}f}" if isinstance(value, (int, float)) else "N/A"
 
 
 def _delta(a, b) -> str:
-    if isinstance(a, (int, float)) and isinstance(b, (int, float)) and a != -1 and b != -1:
+    if (
+        isinstance(a, (int, float))
+        and isinstance(b, (int, float))
+        and not isinstance(a, bool)
+        and not isinstance(b, bool)
+        and a not in (-1, -2)
+        and b not in (-1, -2)
+    ):
         d = b - a
         return f"{d:+.2f}" if isinstance(d, float) else f"{d:+d}"
     return "N/A"

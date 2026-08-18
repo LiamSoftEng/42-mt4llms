@@ -4,6 +4,8 @@ import json
 import time
 from pathlib import Path
 
+from cost_tracker import update_costs
+
 HELPER_LOG_PATH = Path(RESULTS_DIR) / "helper_call_log.jsonl"
 
 def _log_helper_call(system: str, user: str, response_text: str, finish_reason, usage) -> None:
@@ -68,7 +70,8 @@ class MRHelper:
         else:
             self._last_usage = None
 
-        result = choice.message.content.strip()
+        update_costs(self.model_name, self._last_usage)
+        result = (choice.message.content or "").strip()
         _log_helper_call(system, user, result, self._last_finish_reason, self._last_usage)
         return result
 
