@@ -43,7 +43,7 @@ CONFIG = {
     "models": ["openai"],
     "n": 5,
     "after": "2025-04-01",
-    "mr": 1,
+    "mr": [1, 4, 7],  # Or "all" to run every registered MR.
     "mr_only": False,
     "run_tests": True,
     "repeats": 3,

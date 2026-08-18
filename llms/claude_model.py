@@ -1,6 +1,6 @@
 import anthropic
 from .base import BaseLLM
-from config.settings import ANTHROPIC_API_KEY, CLAUDE_MODEL, MAX_TOKENS, TEMPERATURE
+from config.settings import ANTHROPIC_API_KEY, CLAUDE_MODEL, MAX_TOKENS
 
 
 class ClaudeModel(BaseLLM):

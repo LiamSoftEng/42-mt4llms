@@ -118,15 +118,6 @@ ANTONYM_PROMPT_DIFF = (
     "Output only the rewritten problem text with no preamble."
 )
 
-ANTONYM_PROMPT_EQUIV = (
-    "Rewrite the programming problem below by substituting key terms with their antonyms "
-    "ensuring that the substitutions make sense in context"
-    "and adjusting the surrounding logic so the problem remains semantically equivalent "
-    "(e.g. 'ascending order' → 'not in descending order'). "
-    "All numeric constraints, input/output formats, and the required answer must stay identical. "
-    "Output only the rewritten problem text with no preamble."
-)
-
 SYNONYM_PROMPT = (
     "Rewrite the programming problem below by substituting key domain terms and verbs "
     "ensuring that the substitutions make sense in context"

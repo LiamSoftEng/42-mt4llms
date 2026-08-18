@@ -24,7 +24,7 @@ from metamorphic.relations.mrs import (
 RELATIONS = {
     0:  {"class": MR0,  "name": "do_nothing",                     "target": "PD", "description": "Control relation that returns the original prompt and output unchanged."},
     1:  {"class": MR1,  "name": "irrelevant_context",             "target": "PD", "description": "Insert irrelevant sentence into prompt"},
-    2:  {"class": MR2,  "name": "redundant_context",              "target": "I",  "description": "Insert a related sentence which has no effect on the solution."},
+    2:  {"class": MR2,  "name": "constraint_redundant_spec",        "target": "I",  "description": "Insert a related sentence which has no effect on the solution."},
     3:  {"class": MR3,  "name": "format_structural_equivalence",  "target": "PD", "description": "Convert the prompt into a structured bulleted list."},
     4:  {"class": MR4,  "name": "persona_role_prompting",         "target": "I",  "description": "Prepend a persona to the prompt."},
     5:  {"class": MR5,  "name": "polarity_negative_formulation",  "target": "PD", "description": "LLM-assisted rewrite of the return/output requirement into an equivalent negative form."},

@@ -1,5 +1,5 @@
 from openai import OpenAI
-from config.settings import OPENAI_API_KEY, MR_HELPER_MODEL, MR_HELPER_TOKENS, RESULTS_DIR
+from config.settings import OPENAI_API_KEY, MR_HELPER_MODEL, RESULTS_DIR
 import json
 import time
 from pathlib import Path

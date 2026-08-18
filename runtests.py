@@ -4,11 +4,11 @@ If the results file contains followup responses (from --mr), tests both
 and computes MR verdict.
 
 Usage:
-    python runtests.py --results results/grok/base/base.json
-    python runtests.py --results results/grok/base/base.json --n 5
-    python runtests.py --results results/grok/base/base.json --stdout
-    python runtests.py --results results/grok/mr-05-context_extraneous_narrative.json --followup-only
-    python runtests.py --results results/grok/mr-05-context_extraneous_narrative.json --csv results/grok/metrics.csv
+    python runtests.py --results results/openai/base/base.json
+    python runtests.py --results results/openai/base/base.json --n 5
+    python runtests.py --results results/openai/base/base.json --stdout
+    python runtests.py --results results/openai/mr-05-polarity_negative_formulation.json --followup-only
+    python runtests.py --results results/openai/base/base.json --csv results/openai/metrics.csv
 """
 
 import json
@@ -31,6 +31,8 @@ from evaluation.metrics import (
     compute_token_count,
     compute_token_efficiency,
 )
+from evaluation.report import format_decimal
+from evaluation.metric_rows import BASE_CSV_FIELDS, FOLLOWUP_CSV_FIELDS, serialize_metric_csv_row
 
 
 def _response_samples(entry: dict, sample_key: str, primary_key: str) -> list[str]:
@@ -43,10 +45,6 @@ def _response_samples(entry: dict, sample_key: str, primary_key: str) -> list[st
 
 def _code_samples(responses: list[str]) -> list[str | None]:
     return [extract_code(r) for r in responses]
-
-
-def _fmt(value, digits: int = 4) -> str:
-    return f"{value:.{digits}f}" if isinstance(value, (int, float)) else "N/A"
 
 
 def _delta(value) -> str:
@@ -63,80 +61,13 @@ def _write_metrics_csv(csv_path: str | Path, metric_rows: list[dict], has_mr: bo
     path = Path(csv_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
-    base_fields = [
-        "id",
-        "extractable_code", "passes_tests", "source_passed",
-        "tests_passed", "tests_failed", "tests_total",
-        "test_run_time",
-        "source_ncloc", "source_cc",
-        "source_mean_distance", "source_std_distance", "source_pairs",
-        "prompt_tokens", "completion_tokens", "total_tokens",
-        "thinking_tokens", "token_efficiency",
-        "llm_call_time",
-    ]
-    mr_extra_fields = [
-        "followup_extractable", "followup_passes_tests", "passes_same_tests", "followup_passed",
-        "followup_tests_passed", "followup_tests_failed", "followup_tests_total",
-        "followup_test_run_time",
-        "followup_ncloc", "followup_cc",
-        "followup_mean_distance", "followup_std_distance", "followup_pairs",
-        "followup_prompt_tokens", "followup_completion_tokens", "followup_total_tokens",
-        "followup_thinking_tokens", "followup_token_efficiency",
-        "followup_llm_call_time",
-        "code_sim", "mr_holds",
-    ]
-    fieldnames = base_fields + (mr_extra_fields if has_mr else [])
+    fieldnames = BASE_CSV_FIELDS + (FOLLOWUP_CSV_FIELDS if has_mr else [])
 
     with open(path, "w", encoding="utf-8", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for row in metric_rows:
-            src_var = row.get("source_variability") or {}
-            flw_var = row.get("followup_variability") or {}
-            output = {
-                "id": row.get("id"),
-                "extractable_code": row.get("source_extractable"),
-                "passes_tests": row.get("source_passes_tests"),
-                "source_passed": row.get("source_passed"),
-                "tests_passed": row.get("tests_passed"),
-                "tests_failed": row.get("tests_failed"),
-                "tests_total": row.get("tests_total"),
-                "test_run_time": row.get("source_test_run_time"),
-                "source_ncloc": row.get("source_ncloc"),
-                "source_cc": row.get("source_cc"),
-                "source_mean_distance": src_var.get("mean_distance"),
-                "source_std_distance": src_var.get("std_distance"),
-                "source_pairs": src_var.get("n_pairs"),
-                "prompt_tokens": row.get("source_prompt_tokens"),
-                "completion_tokens": row.get("source_completion_tokens"),
-                "total_tokens": row.get("source_total_tokens"),
-                "thinking_tokens": row.get("source_thinking_tokens"),
-                "token_efficiency": row.get("source_token_efficiency"),
-                "llm_call_time": row.get("source_llm_call_time"),
-                # MR fields
-                "followup_extractable": row.get("followup_extractable"),
-                "followup_passes_tests": row.get("followup_passes_tests"),
-                "passes_same_tests": row.get("passes_same_tests"),
-                "followup_passed": row.get("followup_passed"),
-                "followup_tests_passed": row.get("followup_tests_passed"),
-                "followup_tests_failed": row.get("followup_tests_failed"),
-                "followup_tests_total": row.get("followup_tests_total"),
-                "followup_test_run_time": row.get("followup_test_run_time"),
-                "followup_ncloc": row.get("followup_ncloc"),
-                "followup_cc": row.get("followup_cc"),
-                "followup_mean_distance": flw_var.get("mean_distance"),
-                "followup_std_distance": flw_var.get("std_distance"),
-                "followup_pairs": flw_var.get("n_pairs"),
-                "followup_prompt_tokens": row.get("followup_prompt_tokens"),
-                "followup_completion_tokens": row.get("followup_completion_tokens"),
-                "followup_total_tokens": row.get("followup_total_tokens"),
-                "followup_thinking_tokens": row.get("followup_thinking_tokens"),
-                "followup_token_efficiency": row.get("followup_token_efficiency"),
-                "followup_llm_call_time": row.get("followup_llm_call_time"),
-                "code_sim": row.get("code_sim"),
-                "mr_holds": row.get("mr_holds"),
-            }
-            writer.writerow({field: output.get(field) for field in fieldnames})
+            writer.writerow(serialize_metric_csv_row(row, has_mr))
     print(f"\n  Wrote metrics CSV -> {path}")
 
 
@@ -197,6 +128,56 @@ def test_response(
     total = tests_passed + tests_failed
     print(f"  [{label}] {tests_passed}/{total} passed  ({total_elapsed:.2f}s)")
     return all_passed, tests_passed, tests_failed, total, code, test_results, total_elapsed
+
+
+def evaluate_response(
+    response: str,
+    entry: dict,
+    func_name: str | None,
+    debug: bool,
+    label: str,
+    sample_key: str,
+    primary_key: str,
+) -> dict:
+    """Execute and measure one source or followup response."""
+    passed, tests_passed, tests_failed, tests_total, code, test_results, run_time = test_response(
+        response, entry, func_name, debug, label=label
+    )
+    metrics = compute_metrics(code)
+    return {
+        "passed": passed,
+        "tests_passed": tests_passed,
+        "tests_failed": tests_failed,
+        "tests_total": tests_total,
+        "test_run_time": round(run_time, 4),
+        "code": code,
+        "test_results": test_results,
+        "extractable": compute_extractable_code(response),
+        "passes_tests": compute_passes_tests(test_results),
+        "ncloc": metrics["ncloc"],
+        "cc": metrics["cyclomatic_complexity"],
+        "variability": compute_pairwise_code_variability(
+            _code_samples(_response_samples(entry, sample_key, primary_key))
+        ),
+    }
+
+
+def _metric_side(evaluation: dict, side: str) -> dict:
+    """Map an evaluated response to the internal metric-row field names."""
+    prefix = "followup_" if side == "followup" else "source_"
+    tests_prefix = "followup_" if side == "followup" else ""
+    return {
+        f"{prefix}extractable": evaluation["extractable"],
+        f"{prefix}passes_tests": evaluation["passes_tests"],
+        f"{prefix}passed": evaluation["passed"],
+        f"{tests_prefix}tests_passed": evaluation["tests_passed"],
+        f"{tests_prefix}tests_failed": evaluation["tests_failed"],
+        f"{tests_prefix}tests_total": evaluation["tests_total"],
+        f"{prefix}test_run_time": evaluation["test_run_time"],
+        f"{prefix}ncloc": evaluation["ncloc"],
+        f"{prefix}cc": evaluation["cc"],
+        f"{prefix}variability": evaluation["variability"],
+    }
 
 
 def run_tests(
@@ -262,36 +243,29 @@ def run_tests(
         if followup_only:
             primary_response = entry.get("followup_response") or entry.get("response", "")
             label = "followup" if entry.get("followup_response") else "source"
-            all_passed, tp, tf, tt, code, test_results, run_time = test_response(
-                primary_response, entry, func_name, debug, label=label
+            evaluation = evaluate_response(
+                primary_response,
+                entry,
+                func_name,
+                debug,
+                label,
+                "followup_response_samples" if label == "followup" else "response_samples",
+                "followup_response" if label == "followup" else "response",
             )
-            if all_passed is None:
+            if evaluation["passed"] is None:
                 skipped += 1
                 continue
-            if all_passed:
+            if evaluation["passed"]:
                 passed += 1
             else:
                 failed += 1
 
-            metrics = compute_metrics(code)
-            sample_key = "followup_response_samples" if label == "followup" else "response_samples"
-            primary_key = "followup_response" if label == "followup" else "response"
-            variability = compute_pairwise_code_variability(
-                _code_samples(_response_samples(entry, sample_key, primary_key))
-            )
             metric_rows.append({
                 "id": qid,
                 "question_title": entry.get("question_title"),
                 "difficulty": entry.get("difficulty"),
                 "platform": entry.get("platform"),
-                "source_extractable": compute_extractable_code(primary_response),
-                "source_passes_tests": compute_passes_tests(test_results),
-                "source_passed": all_passed,
-                "tests_passed": tp, "tests_failed": tf, "tests_total": tt,
-                "source_test_run_time": round(run_time, 4),
-                "source_ncloc": metrics["ncloc"],
-                "source_cc": metrics["cyclomatic_complexity"],
-                "source_variability": variability,
+                **_metric_side(evaluation, "source"),
                 "source_prompt_tokens": src_tokens["prompt_tokens"],
                 "source_completion_tokens": src_tokens["completion_tokens"],
                 "source_total_tokens": src_tokens["total_tokens"],
@@ -303,22 +277,23 @@ def run_tests(
 
         # ── Source ──────────────────────────────────────────────────────────
         src_response = entry["response"]
-        src_passed, src_tp, src_tf, src_tt, src_code, src_test_results, src_run_time = test_response(
-            src_response, entry, func_name, debug, label="source"
+        source = evaluate_response(
+            src_response,
+            entry,
+            func_name,
+            debug,
+            "source",
+            "response_samples",
+            "response",
         )
 
-        if src_passed is None:
+        if source["passed"] is None:
             skipped += 1
             continue
-        if src_passed:
+        if source["passed"]:
             passed += 1
         else:
             failed += 1
-
-        src_metrics = compute_metrics(src_code)
-        src_var = compute_pairwise_code_variability(
-            _code_samples(_response_samples(entry, "response_samples", "response"))
-        )
 
         row: dict = {
             "id": qid,
@@ -326,17 +301,7 @@ def run_tests(
             "difficulty": entry.get("difficulty"),
             "platform": entry.get("platform"),
 
-            # Source test metrics
-            "source_extractable": compute_extractable_code(src_response),
-            "source_passes_tests": compute_passes_tests(src_test_results),
-            "source_passed": src_passed,
-            "tests_passed": src_tp, "tests_failed": src_tf, "tests_total": src_tt,
-            "source_test_run_time": round(src_run_time, 4),
-
-            # Source code metrics
-            "source_ncloc": src_metrics["ncloc"],
-            "source_cc": src_metrics["cyclomatic_complexity"],
-            "source_variability": src_var,
+            **_metric_side(source, "source"),
 
             # Source token metrics
             "source_prompt_tokens": src_tokens["prompt_tokens"],
@@ -367,12 +332,18 @@ def run_tests(
         # ── Followup ─────────────────────────────────────────────────────────
         if entry.get("relation") and entry.get("followup_response"):
             flw_response = entry["followup_response"]
-            flw_passed, flw_tp, flw_tf, flw_tt, flw_code, flw_test_results, flw_run_time = test_response(
-                flw_response, entry, func_name, debug, label="followup"
+            followup = evaluate_response(
+                flw_response,
+                entry,
+                func_name,
+                debug,
+                "followup",
+                "followup_response_samples",
+                "followup_response",
             )
 
-            if flw_passed is not None:
-                holds = src_passed == flw_passed
+            if followup["passed"] is not None:
+                holds = source["passed"] == followup["passed"]
                 verdict = "HOLDS" if holds else "VIOLATED"
                 print(f"  MR [{entry['relation']}]: {verdict}")
                 if holds:
@@ -380,21 +351,11 @@ def run_tests(
                 else:
                     mr_violated_count += 1
                 row["mr_holds"] = holds
-                row["followup_passed"] = flw_passed
-                row["followup_tests_passed"] = flw_tp
-                row["followup_tests_failed"] = flw_tf
-                row["followup_tests_total"] = flw_tt
-                row["followup_test_run_time"] = round(flw_run_time, 4)
 
-            row["followup_extractable"] = compute_extractable_code(flw_response)
-            row["followup_passes_tests"] = compute_passes_tests(flw_test_results)
-            row["passes_same_tests"] = compute_passes_same_tests(src_test_results, flw_test_results)
+            row.update(_metric_side(followup, "followup"))
 
-            flw_metrics = compute_metrics(flw_code)
-            row["followup_ncloc"] = flw_metrics["ncloc"]
-            row["followup_cc"] = flw_metrics["cyclomatic_complexity"]
-            row["followup_variability"] = compute_pairwise_code_variability(
-                _code_samples(_response_samples(entry, "followup_response_samples", "followup_response"))
+            row["passes_same_tests"] = compute_passes_same_tests(
+                source["test_results"], followup.get("test_results", [])
             )
             row["followup_prompt_tokens"] = flw_tokens["prompt_tokens"]
             row["followup_completion_tokens"] = flw_tokens["completion_tokens"]
@@ -403,8 +364,8 @@ def run_tests(
             row["followup_token_efficiency"] = flw_token_efficiency
             row["followup_llm_call_time"] = flw_llm_call_time
 
-            if src_code and flw_code:
-                row["code_sim"] = compute_code_similarity(src_code, flw_code)
+            if source["code"] and followup.get("code"):
+                row["code_sim"] = compute_code_similarity(source["code"], followup["code"])
 
         metric_rows.append(row)
 
@@ -439,7 +400,7 @@ def run_tests(
                 src_dist = src_var.get("mean_distance")
                 flw_dist = flw_var.get("mean_distance")
                 ncloc_str = f"{r['source_ncloc']}/{r['followup_ncloc'] if r['followup_ncloc'] is not None else 'N/A'}"
-                cc_str = f"{_fmt(r['source_cc'], 1)}/{_fmt(r['followup_cc'], 1) if r['followup_cc'] is not None else 'N/A'}"
+                cc_str = f"{format_decimal(r['source_cc'], 1)}/{format_decimal(r['followup_cc'], 1) if r['followup_cc'] is not None else 'N/A'}"
                 mr = ("HOLDS" if r["mr_holds"] else "VIOLATED") if r["mr_holds"] is not None else "N/A"
                 src_res = f"{r['tests_passed']}/{r['tests_total']}" if r.get("tests_total") else "N/A"
                 flw_res = (
@@ -451,7 +412,7 @@ def run_tests(
                     else "NO" if r.get("passes_same_tests") is False
                     else "N/A"
                 )
-                eff = _fmt(r.get("source_token_efficiency"), 3) if r.get("source_token_efficiency") is not None else "N/A"
+                eff = format_decimal(r.get("source_token_efficiency"), 3) if r.get("source_token_efficiency") is not None else "N/A"
                 llm_t = f"{r['source_llm_call_time']:.1f}s" if r.get("source_llm_call_time") is not None else "N/A"
                 d_ncloc = _delta(
                     r["followup_ncloc"] - r["source_ncloc"]
@@ -466,7 +427,7 @@ def run_tests(
                 print(
                     f"  {r['id']:<15} {src_res:>6} {flw_res:>6} {same_tst:>7} {ncloc_str:>6} {d_ncloc:>5} "
                     f"{cc_str:>6} {d_cc:>5} "
-                    f"{_fmt(r.get('code_sim'), 4):>7} {_fmt(src_dist, 4):>7} {_fmt(flw_dist, 4):>7} "
+                    f"{format_decimal(r.get('code_sim'), 4):>7} {format_decimal(src_dist, 4):>7} {format_decimal(flw_dist, 4):>7} "
                     f"{_variation_greater(src_dist, flw_dist):>5} "
                     f"{eff:>6} {llm_t:>6} {mr:>8}"
                 )
@@ -483,12 +444,12 @@ def run_tests(
                 src_var = r.get("source_variability") or {}
                 tests_str = f"{r.get('tests_passed', '?')}/{r.get('tests_total', '?')}"
                 ext = "YES" if r.get("source_extractable") else "NO"
-                eff = _fmt(r.get("source_token_efficiency"), 3) if r.get("source_token_efficiency") is not None else "N/A"
+                eff = format_decimal(r.get("source_token_efficiency"), 3) if r.get("source_token_efficiency") is not None else "N/A"
                 llm_t = f"{r['source_llm_call_time']:.1f}s" if r.get("source_llm_call_time") is not None else "N/A"
                 test_t = f"{r['source_test_run_time']:.2f}s" if r.get("source_test_run_time") is not None else "N/A"
                 print(
                     f"  {r['id']:<15} {tests_str:>8} {ext:>7} {r['source_ncloc']:>6} {r['source_cc']:>6} "
-                    f"{_fmt(src_var.get('mean_distance'), 4):>8} {_fmt(src_var.get('std_distance'), 4):>7} "
+                    f"{format_decimal(src_var.get('mean_distance'), 4):>8} {format_decimal(src_var.get('std_distance'), 4):>7} "
                     f"{eff:>6} {llm_t:>6} {test_t:>6}"
                 )
 
@@ -515,7 +476,7 @@ def run_tests(
     return metric_rows
 
 
-class _Tee:
+class Tee:
     def __init__(self, *streams):
         self._streams = streams
 
@@ -544,7 +505,7 @@ if __name__ == "__main__":
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     with open(out_path, "w", encoding="utf-8") as f:
-        stream = _Tee(sys.stdout, f) if args.stdout else f
+        stream = Tee(sys.stdout, f) if args.stdout else f
         with redirect_stdout(stream), redirect_stderr(stream):
             run_tests(
                 args.results, args.n,

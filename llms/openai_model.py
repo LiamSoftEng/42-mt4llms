@@ -1,6 +1,6 @@
 from openai import OpenAI
 from .base import BaseLLM
-from config.settings import OPENAI_API_KEY, OPENAI_MODEL, MAX_TOKENS, TEMPERATURE
+from config.settings import OPENAI_API_KEY, OPENAI_MODEL, MAX_TOKENS
 
 
 class OpenAIModel(BaseLLM):
@@ -17,8 +17,6 @@ class OpenAIModel(BaseLLM):
             "model": self._model_name,
             "messages": [{"role": "user", "content": prompt}],
         }
-        # if "gpt-5-nano" not in self._model_name:
-            # request["temperature"] = TEMPERATURE
         if self._model_name.startswith("gpt-5"):
             request["max_completion_tokens"] = MAX_TOKENS
             request["reasoning_effort"] = "medium"

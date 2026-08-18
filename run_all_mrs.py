@@ -1,10 +1,8 @@
 import json
 import subprocess
 import sys
-from pathlib import Path
-
 from metamorphic.relations_list import RELATIONS
-from config.settings import GROK_MODEL, DEEPSEEK_MODEL
+from config.settings import OPENAI_MODEL
 from evaluation.paths import build_results_path
 
 
@@ -18,7 +16,7 @@ def _load_run_results(model_name: str, relation_name: str, relation_id: int) -> 
 
 
 def main() -> int:
-    base_results_path = build_results_path(DEEPSEEK_MODEL, None, None)
+    base_results_path = build_results_path(OPENAI_MODEL, None, None)
     model_dir = base_results_path.parent.parent
     out_dir = model_dir / "all_mrs"
     out_path = out_dir / "all_mrs.json"
@@ -32,7 +30,7 @@ def main() -> int:
                 sys.executable,
                 "main.py",
                 "--models",
-                "deepseek",
+                "openai",
                 "--n",
                 "1",
                 "--mr",
@@ -43,7 +41,7 @@ def main() -> int:
         if result.returncode != 0:
             print(f"MR {mr_id} failed with exit code {result.returncode}")
             return result.returncode
-        run_results = _load_run_results(DEEPSEEK_MODEL, mr_name, mr_id)
+        run_results = _load_run_results(OPENAI_MODEL, mr_name, mr_id)
         if run_results is None:
             return 1
         combined_results.extend(run_results)

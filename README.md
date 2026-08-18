@@ -21,7 +21,9 @@ Add the API keys for the providers you intend to use to `.env`. Model names, gen
 python explore_dataset.py
 ```
 
-The LiveCodeBench dataset is downloaded and cached on first use.
+The LiveCodeBench dataset is downloaded and cached on first use. Add
+`--write-preview` only when you want to save the first ten records under the
+configured results directory.
 
 ### 3. Run a small experiment
 
@@ -47,7 +49,7 @@ CONFIG = {
     "models": ["openai"],
     "n": 5,
     "after": "2025-04-01",
-    "mr": 1,
+    "mr": [1, 4, 7],  # Or "all" to run every registered MR.
     "mr_only": False,
     "run_tests": True,
     "repeats": 3,
@@ -71,10 +73,11 @@ python main.py [options]
 
 | Option | Description |
 |---|---|
-| `--models MODEL ...` | Models to run: `claude`, `openai`, `gemini`, `deepseek`, or `grok`. Defaults to all. |
+| `--models MODEL ...` | Models to run: `claude`, `openai`, or `gemini`. Defaults to all. |
 | `--n N` | Limit the number of dataset problems. |
 | `--after YYYY-MM-DD` | Include problems on or after the specified date. |
-| `--mr ID` | Apply the metamorphic relation with the specified ID. |
+| `--difficulty LEVEL ...` | Include only `easy`, `medium`, and/or `hard` problems. |
+| `--mr ID ...` | Apply one or more relation IDs, or use `--mr all`. |
 | `--mr-only` | Reuse saved base responses and generate only MR follow-up responses. Requires `--mr`. |
 | `--repeats N` | Generate each applicable prompt N times. Defaults to `1`. |
 | `--resume` | Skip existing entries that already contain the required code blocks. |
@@ -85,13 +88,20 @@ python main.py [options]
 Run a base experiment:
 
 ```powershell
-python main.py --models deepseek --n 5
+python main.py --models openai --n 5
 ```
 
 Run an MR experiment:
 
 ```powershell
 python main.py --models openai --n 10 --mr 4
+```
+
+Run several or all registered MRs:
+
+```powershell
+python main.py --models openai --n 10 --mr 3 4 5
+python main.py --models openai --n 10 --mr all
 ```
 
 Measure source and MR prompt variability:
@@ -168,7 +178,7 @@ Available options:
 | `--out PATH` | Set the test log path. |
 | `--csv PATH` | Export the metrics table to CSV. |
 | `--followup-only` | Test the follow-up response as the primary response. |
-| `--write-outputs` | Write split content/results files, generate the HTML report, and refresh the merged `all.html` + `violations.json`. |
+| `--write-outputs` | Write split content/results files and generate the HTML report. |
 
 Examples:
 
@@ -298,18 +308,7 @@ results/<model>/
 |-- all_mrs/
 |   |-- all_mrs.json
 |   `-- all_mrs.tests.log
-|-- all.html              Merged HTML report of the base run + all MR runs
-`-- violations.json       Log of every MR violation (mr_holds == False)
 ```
-
-`all.html` and `violations.json` are consolidated automatically once testing
-finishes — at the end of `main.py --run-tests` (per model) and after every
-`runtests.py` run that uses `--write-outputs`. They are regenerated from
-whatever results exist on disk, so they stay up to date as runs are added.
-
-Each `violations.json` entry records the relation, question, source vs followup
-pass status and test counts, `passes_same_tests`, and code similarity for that
-violation.
 
 Test logs default to the input result filename with `.tests.log` appended. CSV output is written only when `--csv` is supplied.
 
@@ -317,25 +316,33 @@ Test logs default to the input result filename with `.tests.log` appended. CSV o
 
 | ID | Name | Target | Transformation |
 |---:|---|---|---|
-| 0 | `do_nothing` | Question | Leaves the prompt unchanged as a control. |
-| 1 | `dead_context` | Question | Adds an irrelevant sentence. |
-| 2 | `constraint_redundant_spec` | Instruction | Adds a redundant language constraint. |
-| 3 | `format_structural_equivalence` | Question | Converts the prompt into a structured list. |
-| 4 | `persona_role_prompting` | Instruction | Adds a software-engineer persona. |
-| 5 | `context_extraneous_narrative` | Question | Adds irrelevant narrative context. |
-| 6 | `polarity_negative_formulation` | Instruction | Rewrites a return constraint in negative form. |
-| 7 | `identifier_explicit_naming` | Instruction | Adds explicit variable-naming constraints. |
-| 8 | `output_formatting_constraint` | Instruction | Adds raw-code output constraints. |
-| 9 | `hint_trivial_algorithm` | Instruction | Adds a simple algorithmic hint. |
-| 10 | `order_requirement_permutation` | Question | Reorders independent constraints. |
-| 11 | `verbosity_lexical_expansion` | Question | Adds short definitions for common terms. |
+| 0 | `do_nothing` | Prompt description | Returns the original prompt unchanged as a control. |
+| 1 | `irrelevant_context` | Prompt description | Inserts an irrelevant sentence into the prompt. |
+| 2 | `constraint_redundant_spec` | Instruction | Inserts a related sentence that does not affect the solution. |
+| 3 | `format_structural_equivalence` | Prompt description | Converts the prompt into a structured bulleted list. |
+| 4 | `persona_role_prompting` | Instruction | Prepends a persona to the prompt. |
+| 5 | `polarity_negative_formulation` | Prompt description | Rewrites the output requirement into an equivalent negative form. |
+| 6 | `identifier_explicit_naming` | Instruction | Adds explicit internal variable-naming constraints. |
+| 7 | `order_requirement_permutation` | Prompt description | Reorders independent constraints while preserving meaning. |
+| 8 | `remove_sentences` | Prompt description | Removes exactly one sentence. |
+| 9 | `antonym_substitution` | Prompt description | Substitutes key terms with antonyms and adjusts surrounding logic. |
+| 10 | `synonym_substitution` | Prompt description | Substitutes key terms with synonyms while preserving meaning. |
+| 11 | `loop_while_only` | Instruction | Requires while loops and forbids for loops. |
+| 12 | `full_commenting` | Instruction | Requires an inline comment on every non-blank solution line. |
+| 13 | `dummy_variable` | Instruction | Requires unused dummy variables at the start of the solution. |
+| 14 | `guard_clause_conditionals` | Instruction | Requires guard clauses instead of nested if-else logic. |
+| 15 | `use_recursion` | Instruction | Requires recursion and forbids iterative loops. |
+| 16 | `no_builtin_libraries` | Instruction | Forbids Python standard-library modules. |
+| 17 | `mandated_library` | Prompt description | Requires a helper-selected standard-library module. |
+| 18 | `scope_input_narrowing` | Prompt description | Adds a generic guarantee about the input domain. |
+| 19 | `round_trip_paraphrase` | Prompt description | Replaces the problem with a helper-generated paraphrase. |
 
 Relations are implemented in `metamorphic/relations/mrs.py` and registered in `metamorphic/relations_list.py`.
 
 To add a relation:
 
 1. Add a class derived from `BaseMR`.
-2. Set its `target` to `question` or `instruction`.
+2. Set its `target` to `PD` (prompt description) or `I` (instruction).
 3. Implement `name` and `transform(...)`.
 4. Register it in `metamorphic/relations_list.py`.
 

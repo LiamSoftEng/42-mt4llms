@@ -3,45 +3,36 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
-os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
-os.environ.setdefault("HUGGINGFACE_HUB_DISABLE_PROGRESS_BARS", "1")
-os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
-os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
+HUGGINGFACE_ENV_DEFAULTS = {
+    "HF_HUB_DISABLE_SYMLINKS_WARNING": "1",
+    "HF_HUB_DISABLE_PROGRESS_BARS": "1",
+    "HUGGINGFACE_HUB_DISABLE_PROGRESS_BARS": "1",
+    "TRANSFORMERS_VERBOSITY": "error",
+    "TRANSFORMERS_NO_ADVISORY_WARNINGS": "1",
+}
+
+
+def configure_huggingface_environment() -> None:
+    for name, value in HUGGINGFACE_ENV_DEFAULTS.items():
+        os.environ.setdefault(name, value)
+
+
+configure_huggingface_environment()
 
 # API Keys
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-GROK_API_KEY = os.getenv("GROK_API_KEY")
 
-# Model names (TODO: change please, based on knowledge cutoffs + call costs)
-MR_HELPER_MODEL = "gpt-5.6-luna" #find fast, cheap model for MR helper, just putting gpt-5-nano for now
+# Model names
+MR_HELPER_MODEL = "gpt-5-nano"
 CLAUDE_MODEL = "claude-sonnet-4-6"
-OPENAI_MODEL = "gpt-5.6-sol"
+OPENAI_MODEL = "gpt-5-nano"
 GEMINI_MODEL = "gemini-2.5-flash"
-DEEPSEEK_MODEL = "google/gemma-2-2b-it"
-# DEEPSEEK_MODEL = "minimaxai/minimax-m2.7"
 CODE_EMBEDDING_MODEL = "Salesforce/codet5p-220m"
 CODE_TOKENIZER_MODEL = "Salesforce/codet5-base"
 
-# Groq model options (uncomment one)
-# GROK_MODEL = "openai/gpt-oss-20b"
-GROK_MODEL = "openai/gpt-oss-120b"
-# GROK_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
-# GROK_MODEL = "llama-3.3-70b-versatile"
-# GROK_MODEL = "llama-3.1-8b-instant"
-# GROK_MODEL = "groq/compound"
-# GROK_MODEL = "groq/compound-mini"
-# GROK_MODEL = "allam-2-7b"
-# GROK_MODEL = "meta-llama/llama-prompt-guard-2-22m"
-# GROK_MODEL = "meta-llama/llama-prompt-guard-2-86m"
-# GROK_MODEL = "openai/gpt-oss-safeguard-20b"
-# GROK_MODEL = "qwen/qwen3-32b"
-
-# Generation params (TODO: adjust as needed)
-MR_HELPER_TOKENS = 8192
+# Generation parameters
 MAX_TOKENS = 8192
 TEMPERATURE = 0  # Deterministic outputs for reproducibility
 
@@ -59,8 +50,6 @@ COST_RATES_PER_MILLION = {
     CLAUDE_MODEL: {"prompt": 0.0, "completion": 0.0},
     OPENAI_MODEL: {"prompt": 5, "completion": 30},
     GEMINI_MODEL: {"prompt": 0.0, "completion": 0.0},
-    DEEPSEEK_MODEL: {"prompt": 0.0, "completion": 0.0},
-    GROK_MODEL: {"prompt": 0.05, "completion": 0.40},
 }
 
 METRIC_VARIANCE_THRESHOLDS = {
@@ -72,7 +61,5 @@ METRIC_VARIANCE_THRESHOLDS = {
     "code_sim": 0.85,  # minimum allowed value, not a delta
 }
 
-def get_metric_threshold(metric_name: str, question_id: str | None = None) -> float | None:
-    # Future: check a per-question override table first, keyed by question_id.
-    # For now this always falls through to the global default.
+def get_metric_threshold(metric_name: str) -> float | None:
     return METRIC_VARIANCE_THRESHOLDS.get(metric_name)

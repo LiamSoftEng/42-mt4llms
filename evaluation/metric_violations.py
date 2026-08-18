@@ -24,11 +24,10 @@ def check_metric_violations(base_row: dict, followup_row: dict) -> dict:
     "threshold":...}} for every metric that breached its threshold. Metrics
     missing on either side, or with no configured threshold, are skipped.
     """
-    question_id = followup_row.get("question_id") or base_row.get("question_id")
     violations: dict = {}
 
     for metric_name in METRIC_VARIANCE_THRESHOLDS:
-        threshold = get_metric_threshold(metric_name, question_id)
+        threshold = get_metric_threshold(metric_name)
         if threshold is None:
             continue
 

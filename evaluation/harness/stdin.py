@@ -10,12 +10,12 @@ import tempfile
 import os
 
 
-def run(code: str, test_input: str, timeout: int = 100) -> tuple[bool, str, str]:
+def run(code: str, test_input: str, timeout: int = 100) -> tuple[str, str]:
     """
     Execute code with the given stdin input.
 
     Returns:
-        (passed, actual_output, error_message)
+        The subprocess's ``(stdout, stderr)`` text.
     """
     with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
         f.write(code)
