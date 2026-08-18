@@ -62,3 +62,17 @@ COST_RATES_PER_MILLION = {
     DEEPSEEK_MODEL: {"prompt": 0.0, "completion": 0.0},
     GROK_MODEL: {"prompt": 0.05, "completion": 0.40},
 }
+
+METRIC_VARIANCE_THRESHOLDS = {
+    "ncloc": 5,
+    "cyclomatic_complexity": 2.0,
+    "llm_call_time": 10.0,
+    "total_tokens": 500,
+    "token_efficiency": 0.5,
+    "code_sim": 0.85,  # minimum allowed value, not a delta
+}
+
+def get_metric_threshold(metric_name: str, question_id: str | None = None) -> float | None:
+    # Future: check a per-question override table first, keyed by question_id.
+    # For now this always falls through to the global default.
+    return METRIC_VARIANCE_THRESHOLDS.get(metric_name)

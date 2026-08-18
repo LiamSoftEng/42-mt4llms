@@ -6,6 +6,7 @@ from functools import lru_cache
 from itertools import combinations
 import os
 from statistics import mean, stdev
+import textwrap
 import warnings
 
 from radon.raw import analyze
@@ -190,15 +191,40 @@ def compute_ncloc(code: str) -> int:
 def compute_cyclomatic_complexity(code: str) -> float:
     """
     Average cyclomatic complexity across all functions/methods in the code.
-    Returns -1 if code cannot be parsed or contains no functions.
+
+    radon's cc_visit only walks function/method bodies, so it has nothing to
+    measure in flat/procedural code with no def blocks (common for
+    LeetCode/AtCoder-style solutions that just read input, compute, and
+    print — in practice this is most of this dataset's solutions). Rather
+    than return a sentinel for those, wrap the whole module body in a
+    synthetic function so cc_visit has something to walk, and measure the
+    program's actual branching complexity as a single unit.
+
+    This only changes the *parsed structure* radon sees (one extra level of
+    indentation) — it doesn't execute the code, so it's safe even for code
+    containing multi-line string literals; any leading whitespace added
+    inside a string's content has no effect on complexity.
+
+    Returns -1 if the code cannot be parsed at all (real code, not the
+    wrapped version). -2 is still possible for the rare case where even the
+    wrapped code yields no measurable blocks (e.g. inconsistent
+    tabs/spaces prevents wrapping from parsing).
     """
     try:
         blocks = cc_visit(code)
-        if not blocks:
-            return -1
-        return round(sum(b.complexity for b in blocks) / len(blocks), 2)
     except Exception:
         return -1
+
+    if not blocks:
+        try:
+            wrapped = "def _synthetic_wrapper():\n" + textwrap.indent(code, "    ")
+            blocks = cc_visit(wrapped)
+        except Exception:
+            blocks = []
+        if not blocks:
+            return -2
+
+    return round(sum(b.complexity for b in blocks) / len(blocks), 2)
 
 
 def compute_metrics(code: str | None) -> dict:

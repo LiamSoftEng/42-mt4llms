@@ -4,7 +4,7 @@ from config.settings import LCB_DATASET, LCB_VERSION, N_SAMPLES
 INSTRUCTION_PREFIX = "Solve the following coding problem. Return ONLY the final code, no explanation, no code comments\n"
 INSTRUCTION_SUFFIX = "\nReturn your solution as a Python code block (```python ... ```)."
 
-def load_livecode_bench(n_samples: int = None, after: str = None):
+def load_livecode_bench(n_samples: int = None, after: str = None, difficulty: str | list[str] | None = None):
     """
     Load LiveCodeBench from HuggingFace.
 
@@ -20,8 +20,11 @@ def load_livecode_bench(n_samples: int = None, after: str = None):
       - private_test_cases: hidden evaluation tests (gzipped + base64)
 
     Args:
-        n_samples: limit number of samples returned.
-        after:     only include problems on or after this date e.g. '2024-01-01'
+        n_samples:  limit number of samples returned.
+        after:      only include problems on or after this date e.g. '2024-01-01'
+        difficulty: only include problems matching this difficulty. Accepts a
+                    single value ('easy') or a list ('easy', 'medium'). Matching
+                    is case-insensitive.
     """
     dataset = load_dataset(LCB_DATASET, name=LCB_VERSION, split="test")
 
@@ -31,6 +34,17 @@ def load_livecode_bench(n_samples: int = None, after: str = None):
             lambda x: x["contest_date"].replace(tzinfo=None) >= cutoff
         )
         print(f"Filtered to problems on or after {after}: {len(dataset)} samples remaining")
+
+    if difficulty is not None:
+        allowed = {difficulty} if isinstance(difficulty, str) else set(difficulty)
+        allowed = {d.lower() for d in allowed}
+        dataset = dataset.filter(lambda x: x["difficulty"].lower() in allowed)
+        print(f"Filtered to difficulty {sorted(allowed)}: {len(dataset)} samples remaining")
+
+    # The raw dataset is ordered oldest-first by contest_date. Sort newest-first
+    # so --n takes the most recent problems (within any after/difficulty filter)
+    # rather than the oldest ones.
+    dataset = dataset.sort("contest_date", reverse=True)
 
     limit = n_samples if n_samples is not None else N_SAMPLES
     if limit is not None:

@@ -168,7 +168,7 @@ Available options:
 | `--out PATH` | Set the test log path. |
 | `--csv PATH` | Export the metrics table to CSV. |
 | `--followup-only` | Test the follow-up response as the primary response. |
-| `--write-outputs` | Write split content/results files and generate an HTML report. |
+| `--write-outputs` | Write split content/results files, generate the HTML report, and refresh the merged `all.html` + `violations.json`. |
 
 Examples:
 
@@ -183,6 +183,59 @@ python runtests.py `
 ```
 
 `main.py --run-tests` automatically invokes `runtests.py` with `--write-outputs`.
+
+## Repeat Variability Testing
+
+### Generate repeated samples
+
+Add `--repeats N` to generate each prompt N times. Each repeat is saved as a separate file under the base results folder:
+
+```powershell
+python main.py --models openai --n 2  --repeats 3  --difficulty easy
+```
+
+This generates:
+
+```text
+results/<model>/base/
+|-- base.json
+`-- repeats/
+    |-- repeat-01.json
+    |-- repeat-02.json
+    `-- repeat-03.json
+```
+
+Every `repeat-NN.json` contains the same set of problems; `response_samples` holds that run's independently generated code sample for each problem.
+
+### Test and compare the repeats
+
+`compare_repeats.py` re-runs the test suite against every repeat file, then compares pass rates and code metrics across the runs:
+
+```powershell
+python compare_repeats.py --model gpt-5-nano
+```
+
+or point at a repeats folder directly:
+
+```powershell
+python compare_repeats.py --dir results\gpt-5-nano\base\repeats
+```
+
+Options:
+
+| Option | Description |
+|---|---|
+| `--model NAME` | Look under `results/<model>/base/repeats`. |
+| `--dir PATH` | Explicit path to a repeats folder. |
+| `--csv PATH` | Where to write the comparison CSV (default: `comparison.csv` in the repeats folder). |
+| `--html PATH` | Where to write the HTML comparison report (default: `comparison.html` in the repeats folder). |
+
+For each repeat file it writes a per-run test log (`repeat-NN.tests.log`) and metrics CSV (`repeat-NN.metrics.csv`), then produces two comparison artifacts in the repeats folder:
+
+- `comparison.csv` — one row per repeat: pass rate, extractable rate, and mean NCLOC / CC / tokens / LLM call time.
+- `comparison.html` — stat boxes, a per-run summary table, and a per-question breakdown table with each question's PASS/FAIL badge per repeat and mean metrics.
+
+The console output also reports the mean/std pass rate across repeats and how many questions flipped between pass and fail.
 
 ## Variability Metrics
 
@@ -230,16 +283,33 @@ results/<model>/
 |   |-- base.html
 |   `-- base.tests.log
 |   `-- base.results.json
+|   `-- repeats/              Present only when --repeats > 1
+|       |-- repeat-01.json
+|       |-- repeat-01.tests.log
+|       |-- repeat-01.metrics.csv
+|       |-- comparison.csv
+|       `-- comparison.html
 |-- mr-<id>-<relation>/
 |   |-- mr-<id>-<relation>.json
 |   |-- followup.json
 |   |-- followup.results.json
 |   |-- mr-<id>-<relation>.html
 |   `-- mr-<id>-<relation>.tests.log
-`-- all_mrs/
-  |-- all_mrs.json
-  `-- all_mrs.tests.log
+|-- all_mrs/
+|   |-- all_mrs.json
+|   `-- all_mrs.tests.log
+|-- all.html              Merged HTML report of the base run + all MR runs
+`-- violations.json       Log of every MR violation (mr_holds == False)
 ```
+
+`all.html` and `violations.json` are consolidated automatically once testing
+finishes — at the end of `main.py --run-tests` (per model) and after every
+`runtests.py` run that uses `--write-outputs`. They are regenerated from
+whatever results exist on disk, so they stay up to date as runs are added.
+
+Each `violations.json` entry records the relation, question, source vs followup
+pass status and test counts, `passes_same_tests`, and code similarity for that
+violation.
 
 Test logs default to the input result filename with `.tests.log` appended. CSV output is written only when `--csv` is supplied.
 
@@ -290,6 +360,7 @@ metamorphic/             MR registry and implementations
 results/                 Generated responses, metrics, logs, and reports
 main.py                  Main generation CLI
 runtests.py              Evaluation and export CLI
+compare_repeats.py       Tests and compares per-repeat runs
 run_all_mrs.py           Runs all registered MRs
 ```
 

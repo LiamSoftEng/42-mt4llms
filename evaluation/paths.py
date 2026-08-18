@@ -39,3 +39,16 @@ def build_results_path(
     base_dir = Path(RESULTS_DIR) / safe_name(model_name) / "base"
     base_dir.mkdir(parents=True, exist_ok=True)
     return base_dir / "base.json"
+
+
+def build_repeats_dir(model_name: str) -> Path:
+    """Folder holding one result file per --repeats run, inside the base folder."""
+    base_dir = build_results_path(model_name, None, None).parent
+    repeats_dir = base_dir / "repeats"
+    repeats_dir.mkdir(parents=True, exist_ok=True)
+    return repeats_dir
+
+
+def build_repeat_path(model_name: str, repeat_index: int) -> Path:
+    """Path for a single repeat's result file. repeat_index is 0-based."""
+    return build_repeats_dir(model_name) / f"repeat-{repeat_index + 1:02d}.json"

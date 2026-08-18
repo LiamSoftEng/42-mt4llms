@@ -87,21 +87,11 @@ NEGATION_PROMPT = (
 )
 
 IDENTIFIER_CONSTRAINT = [
-    "Use {variable1} as your loop variable and {variable2} as your output list.",
-    "Your loop variable must be named {variable1} and your result variable must be named {variable2}.",
-    "It is mandatory to name the counter variable {variable1} and the output variable {variable2}.",
-    "Name your helper variable {variable1} and its return value {variable2}.",
     "Call your temporary variable {variable1} and your final answer {variable2}.",
     "The input variable should be named {variable1}; the output variable should be named {variable2}.",
-    "Set the flag variable to {variable1} and the buffer variable to {variable2}.",
-    "Your accumulator must be named {variable1}, and your index variable must be named {variable2}.",
     "Name your first value {variable1} and your second value {variable2}.",
     "Call your main variable {variable1} and your supporting variable {variable2}.",
     "The primary variable should be called {variable1}; the secondary variable should be called {variable2}.",
-    "Set the string variable to {variable1} and the secondary variable to {variable2}.",
-    "Strictly use {variable1} for the sum variable and {variable2} for the average variable, with no exceptions.",
-    "Your storage variable must be called {variable1}, and your key variable must be called {variable2}.",
-    "Name the function {variable1} and its base variable {variable2}.",
     ]
 
 PERMUTATION_PROMPT = (
@@ -114,8 +104,17 @@ PERMUTATION_PROMPT = (
 
 ANTONYM_PROMPT_DIFF = (
     "Rewrite the programming problem below by substituting key terms with their antonyms "
-    "ensuring that the substitutions make sense in context"
-    "All numeric constraints, input/output formats, and the required answer must stay identical. "
+    "(e.g., 'maximum' -> 'minimum', 'increasing' -> 'decreasing', 'at least' -> 'at most'), "
+    "ensuring the substitutions make sense in context.\n\n"
+    "Critical: the rewritten problem must stay internally consistent. The antonym substitution "
+    "changes the problem's logic, so any sample inputs, sample outputs, or worked-example "
+    "explanations in the original problem will likely no longer be correct under the new "
+    "logic. For every example in the problem:\n"
+    "  - Recompute what the correct output actually is for that sample input, given the "
+    "new (antonym-substituted) problem statement — do not just copy the original output.\n"
+    "  - Rewrite any explanation of why that output is correct so it matches the new logic.\n"
+    "  - Sample input values may be kept as-is; only outputs and explanations need to change "
+    "to match the new problem.\n\n"
     "Output only the rewritten problem text with no preamble."
 )
 

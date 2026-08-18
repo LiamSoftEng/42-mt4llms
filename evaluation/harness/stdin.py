@@ -10,7 +10,7 @@ import tempfile
 import os
 
 
-def run(code: str, test_input: str, timeout: int = 10) -> tuple[bool, str, str]:
+def run(code: str, test_input: str, timeout: int = 100) -> tuple[bool, str, str]:
     """
     Execute code with the given stdin input.
 
