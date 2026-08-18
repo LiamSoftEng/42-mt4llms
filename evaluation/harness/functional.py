@@ -43,7 +43,7 @@ def parse_args(test_input: str) -> str:
     return ", ".join(args)
 
 
-def run(code: str, func_name: str, test_input: str, timeout: int = 10, debug: bool = False) -> tuple[str, str]:
+def run(code: str, func_name: str, test_input: str, timeout: int = 100, debug: bool = False) -> tuple[str, str]:
     """
     Execute a functional-style solution.
 

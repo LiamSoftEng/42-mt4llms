@@ -12,6 +12,7 @@ Usage:
 
 import argparse
 import csv
+import json
 import sys
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
@@ -46,6 +47,54 @@ def _mean_list(values: list) -> float | None:
     return mean(nums) if nums else None
 
 
+_QUESTION_METRIC_KEYS = ("pass", "ncloc", "cc", "tokens", "call_time")
+
+
+def _question_row(entry: dict, completed_runs: int) -> dict:
+    """Create an aligned per-question row, prefilled for earlier repeats."""
+    return {
+        "question_id": entry.get("question_id") or entry["id"],
+        "question_title": entry.get("question_title"),
+        "difficulty": entry.get("difficulty"),
+        "platform": entry.get("platform"),
+        **{key: [None] * completed_runs for key in _QUESTION_METRIC_KEYS},
+    }
+
+
+def _record_repeat_questions(
+    per_question: dict[str, dict],
+    raw_results: list[dict],
+    metric_rows: list[dict],
+    run_index: int,
+) -> None:
+    """Add one repeat while preserving an explicit slot for every question."""
+    raw_by_id = {
+        entry.get("question_id"): entry
+        for entry in raw_results
+        if isinstance(entry, dict) and entry.get("question_id")
+    }
+    metrics_by_id = {row["id"]: row for row in metric_rows}
+
+    for q in per_question.values():
+        for key in _QUESTION_METRIC_KEYS:
+            q[key].append(None)
+
+    for qid in dict.fromkeys([*raw_by_id, *metrics_by_id]):
+        entry = metrics_by_id.get(qid) or raw_by_id[qid]
+        if qid not in per_question:
+            per_question[qid] = _question_row(entry, run_index + 1)
+
+        row = metrics_by_id.get(qid)
+        if row is None:
+            continue
+        q = per_question[qid]
+        q["pass"][run_index] = row.get("source_passed")
+        q["ncloc"][run_index] = row.get("source_ncloc")
+        q["cc"][run_index] = row.get("source_cc")
+        q["tokens"][run_index] = row.get("source_total_tokens")
+        q["call_time"][run_index] = row.get("source_llm_call_time")
+
+
 def _write_html_report(
     per_repeat: list[dict],
     per_question: dict[str, dict],
@@ -72,6 +121,9 @@ def _write_html_report(
     mean_call = _avg("mean_llm_call_time")
     inconsistent_pct = round(flips / total_questions * 100) if total_questions else 0
 
+    mean_pass_text = f"{mean_pass * 100:.1f}%" if mean_pass is not None else "N/A"
+    mean_extract_text = f"{mean_extract * 100:.1f}%" if mean_extract is not None else "N/A"
+
     stats_html = f"""
         <div class="stat-box">
             <div class="stat-label">Runs compared</div>
@@ -80,12 +132,12 @@ def _write_html_report(
         </div>
         <div class="stat-box">
             <div class="stat-label">Mean pass rate</div>
-            <div class="stat-value">{mean_pass * 100:.1f}%</div>
+            <div class="stat-value">{mean_pass_text}</div>
             <div class="stat-sub">across {n_runs} runs</div>
         </div>
         <div class="stat-box">
             <div class="stat-label">Mean extractable</div>
-            <div class="stat-value">{mean_extract * 100:.1f}%</div>
+            <div class="stat-value">{mean_extract_text}</div>
             <div class="stat-sub">across {n_runs} runs</div>
         </div>
         <div class="stat-box">
@@ -237,7 +289,10 @@ def compare(repeats_dir: Path, csv_out: str | None = None, html_out: str | None 
     per_repeat = []
     per_question: dict[str, dict] = {}
 
-    for f in files:
+    for run_index, f in enumerate(files):
+        with open(f, encoding="utf-8") as results_fh:
+            raw_results = json.load(results_fh)
+
         log_path = f.with_suffix(".tests.log")
         with open(log_path, "w", encoding="utf-8") as log_fh:
             with redirect_stdout(_Tee(sys.stdout, log_fh)), redirect_stderr(_Tee(sys.stdout, log_fh)):
@@ -263,23 +318,11 @@ def compare(repeats_dir: Path, csv_out: str | None = None, html_out: str | None 
             "mean_llm_call_time": _mean_metric(metric_rows, "source_llm_call_time"),
         })
 
-        for row in metric_rows:
-            q = per_question.setdefault(row["id"], {
-                "question_id": row["id"],
-                "question_title": row.get("question_title"),
-                "difficulty": row.get("difficulty"),
-                "platform": row.get("platform"),
-                "pass": [],
-                "ncloc": [],
-                "cc": [],
-                "tokens": [],
-                "call_time": [],
-            })
-            q["pass"].append(row.get("source_passed"))
-            q["ncloc"].append(row.get("source_ncloc"))
-            q["cc"].append(row.get("source_cc"))
-            q["tokens"].append(row.get("source_total_tokens"))
-            q["call_time"].append(row.get("source_llm_call_time"))
+        # run_tests deliberately omits rows that cannot be evaluated (for
+        # example an LLM error or a response with no extractable code). Build
+        # the question set from the raw results as well, so those omissions
+        # remain in their correct repeat column and render as N/A.
+        _record_repeat_questions(per_question, raw_results, metric_rows, run_index)
 
     # ── Comparison table ─────────────────────────────────────────────────────
     print(f"\n{'='*72}")
@@ -318,7 +361,10 @@ def compare(repeats_dir: Path, csv_out: str | None = None, html_out: str | None 
     with open(path, "w", encoding="utf-8", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=list(per_repeat[0].keys()))
         writer.writeheader()
-        writer.writerows(per_repeat)
+        writer.writerows(
+            {key: "N/A" if value is None else value for key, value in row.items()}
+            for row in per_repeat
+        )
     print(f"\n  Wrote comparison CSV -> {path}")
 
     html_path = Path(html_out) if html_out else repeats_dir / "comparison.html"
