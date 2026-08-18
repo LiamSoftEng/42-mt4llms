@@ -4,7 +4,7 @@ Auto-generated from the working tree. File contents below are stored in
 4-space-indented code blocks so any literal ``` inside source is preserved.
 
 - Total files: 38
-- Total bytes: 193,604
+- Total bytes: 194,829
 
 ## Excluded from this document
 
@@ -539,7 +539,7 @@ File: config/run_config.py (1431 bytes)
 ## config/settings.py
 
 ```text
-File: config/settings.py (3000 bytes)
+File: config/settings.py (3003 bytes)
 ```
 
     import os
@@ -561,9 +561,9 @@ File: config/settings.py (3000 bytes)
     GROK_API_KEY = os.getenv("GROK_API_KEY")
 
     # Model names (TODO: change please, based on knowledge cutoffs + call costs)
-    MR_HELPER_MODEL = "gpt-5-nano" #find fast, cheap model for MR helper, just putting gpt-5-nano for now
+    MR_HELPER_MODEL = "gpt-5.6-luna" #find fast, cheap model for MR helper, just putting gpt-5-nano for now
     CLAUDE_MODEL = "claude-sonnet-4-6"
-    OPENAI_MODEL = "gpt-5-nano"
+    OPENAI_MODEL = "gpt-5.6-sol"
     GEMINI_MODEL = "gemini-2.5-flash"
     DEEPSEEK_MODEL = "google/gemma-2-2b-it"
     # DEEPSEEK_MODEL = "minimaxai/minimax-m2.7"
@@ -1195,7 +1195,7 @@ File: evaluation/metric_violations.py (2510 bytes)
 ## evaluation/metrics.py
 
 ```text
-File: evaluation/metrics.py (10909 bytes)
+File: evaluation/metrics.py (12131 bytes)
 ```
 
     """
@@ -1206,6 +1206,7 @@ File: evaluation/metrics.py (10909 bytes)
     from itertools import combinations
     import os
     from statistics import mean, stdev
+    import textwrap
     import warnings
 
     from radon.raw import analyze
@@ -1390,15 +1391,40 @@ File: evaluation/metrics.py (10909 bytes)
     def compute_cyclomatic_complexity(code: str) -> float:
         """
         Average cyclomatic complexity across all functions/methods in the code.
-        Returns -1 if code cannot be parsed or contains no functions.
+
+        radon's cc_visit only walks function/method bodies, so it has nothing to
+        measure in flat/procedural code with no def blocks (common for
+        LeetCode/AtCoder-style solutions that just read input, compute, and
+        print — in practice this is most of this dataset's solutions). Rather
+        than return a sentinel for those, wrap the whole module body in a
+        synthetic function so cc_visit has something to walk, and measure the
+        program's actual branching complexity as a single unit.
+
+        This only changes the *parsed structure* radon sees (one extra level of
+        indentation) — it doesn't execute the code, so it's safe even for code
+        containing multi-line string literals; any leading whitespace added
+        inside a string's content has no effect on complexity.
+
+        Returns -1 if the code cannot be parsed at all (real code, not the
+        wrapped version). -2 is still possible for the rare case where even the
+        wrapped code yields no measurable blocks (e.g. inconsistent
+        tabs/spaces prevents wrapping from parsing).
         """
         try:
             blocks = cc_visit(code)
-            if not blocks:
-                return -1
-            return round(sum(b.complexity for b in blocks) / len(blocks), 2)
         except Exception:
             return -1
+
+        if not blocks:
+            try:
+                wrapped = "def _synthetic_wrapper():\n" + textwrap.indent(code, "    ")
+                blocks = cc_visit(wrapped)
+            except Exception:
+                blocks = []
+            if not blocks:
+                return -2
+
+        return round(sum(b.complexity for b in blocks) / len(blocks), 2)
 
 
     def compute_metrics(code: str | None) -> dict:
