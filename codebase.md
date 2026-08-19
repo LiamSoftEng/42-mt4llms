@@ -3,8 +3,8 @@
 Auto-generated from the working tree. File contents below are stored in
 4-space-indented code blocks so any literal ``` inside source is preserved.
 
-- Total files: 37
-- Total bytes: 192318
+- Total files: 38
+- Total bytes: 200969
 
 ## Excluded from this document
 
@@ -56,6 +56,7 @@ README.md
 requirements.txt
 run_all_mrs.py
 runtests.py
+tests/test_regressions.py
 ```
 
 ---
@@ -104,7 +105,7 @@ File: .gitignore (196 bytes)
 ## compare_repeats.py
 
 ```text
-File: compare_repeats.py (15797 bytes)
+File: compare_repeats.py (15818 bytes)
 ```
 
     """
@@ -500,7 +501,7 @@ File: compare_repeats.py (15797 bytes)
 ## config/run_config.py
 
 ```text
-File: config/run_config.py (1553 bytes)
+File: config/run_config.py (1554 bytes)
 ```
 
     """
@@ -578,7 +579,7 @@ File: config/run_config.py (1553 bytes)
 ## config/settings.py
 
 ```text
-File: config/settings.py (1891 bytes)
+File: config/settings.py (1956 bytes)
 ```
 
     import os
@@ -1097,7 +1098,7 @@ File: evaluation/harness/functional.py (3050 bytes)
 ## evaluation/harness/stdin.py
 
 ```text
-File: evaluation/harness/stdin.py (1294 bytes)
+File: evaluation/harness/stdin.py (1298 bytes)
 ```
 
     """
@@ -1149,7 +1150,7 @@ File: evaluation/harness/stdin.py (1294 bytes)
 ## evaluation/metric_rows.py
 
 ```text
-File: evaluation/metric_rows.py (5443 bytes)
+File: evaluation/metric_rows.py (5559 bytes)
 ```
 
     """Shared serializers for the metric rows produced by ``runtests.py``."""
@@ -1274,7 +1275,7 @@ File: evaluation/metric_rows.py (5443 bytes)
 ## evaluation/metric_violations.py
 
 ```text
-File: evaluation/metric_violations.py (2414 bytes)
+File: evaluation/metric_violations.py (2799 bytes)
 ```
 
     """
@@ -1289,6 +1290,20 @@ File: evaluation/metric_violations.py (2414 bytes)
     """
 
     from config.settings import METRIC_VARIANCE_THRESHOLDS, get_metric_threshold
+
+
+    _ERROR_SENTINELS = {
+        "ncloc": {-1},
+        "cyclomatic_complexity": {-1, -2},
+    }
+
+
+    def _is_valid_metric_value(metric_name: str, value) -> bool:
+        return (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and value not in _ERROR_SENTINELS.get(metric_name, set())
+        )
 
 
     def check_metric_violations(base_row: dict, followup_row: dict) -> dict:
@@ -1312,7 +1327,7 @@ File: evaluation/metric_violations.py (2414 bytes)
 
             if metric_name == "code_sim":
                 followup_value = followup_row.get("code_sim")
-                if not isinstance(followup_value, (int, float)):
+                if not _is_valid_metric_value(metric_name, followup_value):
                     continue
                 if followup_value < threshold:
                     violations["code_sim"] = {
@@ -1325,7 +1340,9 @@ File: evaluation/metric_violations.py (2414 bytes)
 
             base_value = base_row.get(metric_name)
             followup_value = followup_row.get(metric_name)
-            if not isinstance(base_value, (int, float)) or not isinstance(followup_value, (int, float)):
+            if not _is_valid_metric_value(metric_name, base_value) or not _is_valid_metric_value(
+                metric_name, followup_value
+            ):
                 continue
 
             delta = followup_value - base_value
@@ -1344,7 +1361,7 @@ File: evaluation/metric_violations.py (2414 bytes)
 ## evaluation/metrics.py
 
 ```text
-File: evaluation/metrics.py (11898 bytes)
+File: evaluation/metrics.py (11902 bytes)
 ```
 
     """
@@ -1745,7 +1762,7 @@ File: evaluation/paths.py (1813 bytes)
 ## evaluation/report.py
 
 ```text
-File: evaluation/report.py (25592 bytes)
+File: evaluation/report.py (25839 bytes)
 ```
 
     """
@@ -1761,20 +1778,29 @@ File: evaluation/report.py (25592 bytes)
 
 
     def format_value(value, digits: int = 4) -> str:
+        if value is None or value in (-1, -2):
+            return "N/A"
         if isinstance(value, float):
             return f"{value:.{digits}f}"
-        if value is None or value == -1:
-            return "N/A"
         return str(value)
 
 
     def format_decimal(value, digits: int = 4) -> str:
         """Format numeric terminal-table values with a fixed decimal precision."""
+        if value is None or value in (-1, -2):
+            return "N/A"
         return f"{value:.{digits}f}" if isinstance(value, (int, float)) else "N/A"
 
 
     def _delta(a, b) -> str:
-        if isinstance(a, (int, float)) and isinstance(b, (int, float)) and a != -1 and b != -1:
+        if (
+            isinstance(a, (int, float))
+            and isinstance(b, (int, float))
+            and not isinstance(a, bool)
+            and not isinstance(b, bool)
+            and a not in (-1, -2)
+            and b not in (-1, -2)
+        ):
             d = b - a
             return f"{d:+.2f}" if isinstance(d, float) else f"{d:+d}"
         return "N/A"
@@ -2358,7 +2384,7 @@ File: evaluation/report.py (25592 bytes)
 ## evaluation/results_writer.py
 
 ```text
-File: evaluation/results_writer.py (10550 bytes)
+File: evaluation/results_writer.py (10580 bytes)
 ```
 
     """
@@ -2620,7 +2646,7 @@ File: evaluation/results_writer.py (10550 bytes)
 ## evaluation/runner.py
 
 ```text
-File: evaluation/runner.py (18509 bytes)
+File: evaluation/runner.py (19630 bytes)
 ```
 
     import json
@@ -2723,6 +2749,7 @@ File: evaluation/runner.py (18509 bytes)
         responses: list[str] = field(default_factory=list)
         usages: list[dict | None] = field(default_factory=list)
         call_times: list[float | None] = field(default_factory=list)
+        finish_reasons: list[str | None] = field(default_factory=list)
         error: str = ""
 
         @property
@@ -2736,6 +2763,10 @@ File: evaluation/runner.py (18509 bytes)
         @property
         def primary_call_time(self) -> float | None:
             return self.call_times[0] if self.call_times else None
+
+        @property
+        def primary_finish_reason(self) -> str | None:
+            return self.finish_reasons[0] if self.finish_reasons else None
 
 
     @dataclass
@@ -2764,6 +2795,7 @@ File: evaluation/runner.py (18509 bytes)
 
         # Timing — source
         llm_call_time: float | None = None          # wall-clock seconds for generate()
+        finish_reason: str | None = None
 
         # MT fields — only populated when --mr is used
         relation: str = ""
@@ -2783,6 +2815,7 @@ File: evaluation/runner.py (18509 bytes)
 
         # Timing — followup
         followup_llm_call_time: float | None = None
+        followup_finish_reason: str | None = None
 
 
     class PipelineRunner:
@@ -2819,16 +2852,19 @@ File: evaluation/runner.py (18509 bytes)
                     response = model.generate(prompt)
                     usage = model.last_usage
                     call_time = model.last_call_time
+                    finish_reason = model.last_finish_reason
                 except Exception as exc:
                     response = ""
                     usage = None
                     call_time = None
+                    finish_reason = None
                     if repeat_index == 0:
                         generated.error = str(exc)
 
                 generated.responses.append(response)
                 generated.usages.append(usage)
                 generated.call_times.append(call_time)
+                generated.finish_reasons.append(finish_reason)
                 _accumulate_usage(token_totals, usage)
                 if repeat_index < self.prompt_repeats - 1:
                     time.sleep(self.delay)
@@ -2898,6 +2934,7 @@ File: evaluation/runner.py (18509 bytes)
                     error = source.error
                     usage = source.primary_usage
                     llm_call_time = source.primary_call_time
+                    finish_reason = source.primary_finish_reason
 
                     if self.relation and self.mr_only and base_results:
                         base_entry = base_results.get(sample["question_id"])
@@ -2906,6 +2943,7 @@ File: evaluation/runner.py (18509 bytes)
                             response_samples = base_entry.get("response_samples") or ([response] if response else [])
                             error = base_entry.get("error", "")
                             llm_call_time = base_entry.get("llm_call_time")
+                            finish_reason = base_entry.get("finish_reason")
 
                     prompt_tokens, completion_tokens, total_tokens, thinking_tokens = _extract_usage(usage)
                     token_efficiency = _token_efficiency(usage)
@@ -2923,6 +2961,7 @@ File: evaluation/runner.py (18509 bytes)
                     followup_thinking_tokens = None
                     followup_token_efficiency = None
                     followup_llm_call_time: float | None = None
+                    followup_finish_reason: str | None = None
 
                     if self.relation:
                         target = getattr(self.relation, "target", "PD")
@@ -2951,6 +2990,7 @@ File: evaluation/runner.py (18509 bytes)
                         ) = _extract_usage(followup.primary_usage)
                         followup_token_efficiency = _token_efficiency(followup.primary_usage)
                         followup_llm_call_time = followup.primary_call_time
+                        followup_finish_reason = followup.primary_finish_reason
 
                         if self.mr_only:
                             print(f"ok (mr-only + {self.relation.name} [{target}], repeats={self.prompt_repeats})")
@@ -2980,6 +3020,7 @@ File: evaluation/runner.py (18509 bytes)
                         thinking_tokens=thinking_tokens,
                         token_efficiency=token_efficiency,
                         llm_call_time=llm_call_time,
+                        finish_reason=finish_reason,
                         relation=self.relation.name if self.relation else "",
                         followup_instruction_prefix=followup_instruction_prefix,
                         followup_instruction_suffix=followup_instruction_suffix,
@@ -2993,6 +3034,7 @@ File: evaluation/runner.py (18509 bytes)
                         followup_thinking_tokens=followup_thinking_tokens,
                         followup_token_efficiency=followup_token_efficiency,
                         followup_llm_call_time=followup_llm_call_time,
+                        followup_finish_reason=followup_finish_reason,
                     )
                     result_entry = asdict(result)
                     results = [entry for entry in results if entry.get("question_id") != sample["question_id"]]
@@ -3016,6 +3058,9 @@ File: evaluation/runner.py (18509 bytes)
                                 thinking_tokens=rep_thtok,
                                 token_efficiency=_token_efficiency(rep_usage),
                                 llm_call_time=source.call_times[idx] if idx < len(source.call_times) else None,
+                                finish_reason=(
+                                    source.finish_reasons[idx] if idx < len(source.finish_reasons) else None
+                                ),
                             ))
                             repeat_results[idx] = [
                                 e for e in repeat_results[idx] if e.get("question_id") != sample["question_id"]
@@ -3056,7 +3101,7 @@ File: evaluation/runner.py (18509 bytes)
 ## explore_dataset.py
 
 ```text
-File: explore_dataset.py (1947 bytes)
+File: explore_dataset.py (2012 bytes)
 ```
 
     """
@@ -3134,7 +3179,7 @@ File: explore_dataset.py (1947 bytes)
 ## INSTRUCTIONS.md
 
 ```text
-File: INSTRUCTIONS.md (1487 bytes)
+File: INSTRUCTIONS.md (1489 bytes)
 ```
 
     ## Quick Start
@@ -3302,7 +3347,7 @@ File: llms/base.py (2699 bytes)
 ## llms/claude_model.py
 
 ```text
-File: llms/claude_model.py (1322 bytes)
+File: llms/claude_model.py (1474 bytes)
 ```
 
     import anthropic
@@ -3320,11 +3365,14 @@ File: llms/claude_model.py (1322 bytes)
             return self._model_name
 
         def generate(self, prompt: str) -> str:
-            message = self.client.messages.create(
-                model=self._model_name,
-                max_tokens=MAX_TOKENS,
-                messages=[{"role": "user", "content": prompt}],
+            message = self._record_timed_call(
+                lambda: self.client.messages.create(
+                    model=self._model_name,
+                    max_tokens=MAX_TOKENS,
+                    messages=[{"role": "user", "content": prompt}],
+                )
             )
+            self._set_last_finish_reason(getattr(message, "stop_reason", None))
             usage = getattr(message, "usage", None)
             if usage is not None:
                 prompt_tokens = getattr(usage, "input_tokens", None)
@@ -3346,7 +3394,7 @@ File: llms/claude_model.py (1322 bytes)
 ## llms/gemini_model.py
 
 ```text
-File: llms/gemini_model.py (1369 bytes)
+File: llms/gemini_model.py (1834 bytes)
 ```
 
     from google import genai
@@ -3364,14 +3412,21 @@ File: llms/gemini_model.py (1369 bytes)
             return self._model_name
 
         def generate(self, prompt: str) -> str:
-            response = self.client.models.generate_content(
-                model=self._model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    max_output_tokens=MAX_TOKENS,
-                    temperature=TEMPERATURE,
-                ),
+            response = self._record_timed_call(
+                lambda: self.client.models.generate_content(
+                    model=self._model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        max_output_tokens=MAX_TOKENS,
+                        temperature=TEMPERATURE,
+                    ),
+                )
             )
+            candidates = getattr(response, "candidates", None) or []
+            finish_reason = getattr(candidates[0], "finish_reason", None) if candidates else None
+            if finish_reason is not None and not isinstance(finish_reason, str):
+                finish_reason = getattr(finish_reason, "name", None) or str(finish_reason)
+            self._set_last_finish_reason(finish_reason)
             usage = getattr(response, "usage_metadata", None)
             if usage is not None:
                 prompt_tokens = getattr(usage, "prompt_token_count", None)
@@ -3391,7 +3446,7 @@ File: llms/gemini_model.py (1369 bytes)
 ## llms/mr_helper.py
 
 ```text
-File: llms/mr_helper.py (2820 bytes)
+File: llms/mr_helper.py (2928 bytes)
 ```
 
     from openai import OpenAI
@@ -3399,6 +3454,8 @@ File: llms/mr_helper.py (2820 bytes)
     import json
     import time
     from pathlib import Path
+
+    from cost_tracker import update_costs
 
     HELPER_LOG_PATH = Path(RESULTS_DIR) / "helper_call_log.jsonl"
 
@@ -3464,7 +3521,8 @@ File: llms/mr_helper.py (2820 bytes)
             else:
                 self._last_usage = None
 
-            result = choice.message.content.strip()
+            update_costs(self.model_name, self._last_usage)
+            result = (choice.message.content or "").strip()
             _log_helper_call(system, user, result, self._last_finish_reason, self._last_usage)
             return result
 
@@ -3487,7 +3545,7 @@ File: llms/mr_helper.py (2820 bytes)
 ## llms/openai_model.py
 
 ```text
-File: llms/openai_model.py (1065 bytes)
+File: llms/openai_model.py (1068 bytes)
 ```
 
     from openai import OpenAI
@@ -3525,7 +3583,7 @@ File: llms/openai_model.py (1065 bytes)
 ## main.py
 
 ```text
-File: main.py (5475 bytes)
+File: main.py (5559 bytes)
 ```
 
     import argparse
@@ -3723,7 +3781,7 @@ File: metamorphic/relations/__init__.py (0 bytes)
 ## metamorphic/relations/base_mr.py
 
 ```text
-File: metamorphic/relations/base_mr.py (112 bytes)
+File: metamorphic/relations/base_mr.py (115 bytes)
 ```
 
     class BaseMR:
@@ -3737,7 +3795,7 @@ File: metamorphic/relations/base_mr.py (112 bytes)
 ## metamorphic/relations/mrs.py
 
 ```text
-File: metamorphic/relations/mrs.py (8242 bytes)
+File: metamorphic/relations/mrs.py (8322 bytes)
 ```
 
     import re, random
@@ -4044,7 +4102,7 @@ File: metamorphic/relations/mrs.py (8242 bytes)
 ## metamorphic/relations/phrases.py
 
 ```text
-File: metamorphic/relations/phrases.py (12647 bytes)
+File: metamorphic/relations/phrases.py (12649 bytes)
 ```
 
     import random
@@ -4256,7 +4314,7 @@ File: metamorphic/relations/phrases.py (12647 bytes)
 ## metamorphic/relations_list.py
 
 ```text
-File: metamorphic/relations_list.py (3873 bytes)
+File: metamorphic/relations_list.py (3875 bytes)
 ```
 
     from metamorphic.relations.mrs import (
@@ -4310,7 +4368,7 @@ File: metamorphic/relations_list.py (3873 bytes)
 ## README.md
 
 ```text
-File: README.md (13922 bytes)
+File: README.md (13965 bytes)
 ```
 
     # LLM Metamorphic Testing Pipeline
@@ -4719,7 +4777,7 @@ File: requirements.txt (160 bytes)
 ## run_all_mrs.py
 
 ```text
-File: run_all_mrs.py (2414 bytes)
+File: run_all_mrs.py (2419 bytes)
 ```
 
     import json
@@ -4802,7 +4860,7 @@ File: run_all_mrs.py (2414 bytes)
 ## runtests.py
 
 ```text
-File: runtests.py (22062 bytes)
+File: runtests.py (22203 bytes)
 ```
 
     """
@@ -5323,3 +5381,152 @@ File: runtests.py (22062 bytes)
                 )
 
 ---
+
+## tests/test_regressions.py
+
+```text
+File: tests/test_regressions.py (5496 bytes)
+```
+
+    import unittest
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from evaluation.metric_violations import check_metric_violations
+    from evaluation.report import format_decimal, format_value
+    from evaluation.runner import PipelineRunner
+    from llms.claude_model import ClaudeModel
+    from llms.gemini_model import GeminiModel
+    from llms.mr_helper import MRHelper
+    from metamorphic.relations.mrs import MR19, _clean_library_name
+
+
+    class MRRegressionTests(unittest.TestCase):
+        def test_empty_library_name_uses_fallback(self):
+            self.assertEqual(_clean_library_name(""), "a suitable standard library module")
+
+        @patch("metamorphic.relations.mrs.mr_llm_transform", return_value="")
+        def test_mr19_empty_solve_response_returns_original(self, transform):
+            original = "Original problem"
+
+            self.assertEqual(MR19().transform(original), original)
+            transform.assert_called_once()
+
+        @patch(
+            "metamorphic.relations.mrs.mr_llm_transform",
+            side_effect=["```python\nprint('ok')\n```", ""],
+        )
+        def test_mr19_empty_explanation_returns_original(self, transform):
+            original = "Original problem"
+
+            self.assertEqual(MR19().transform(original), original)
+            self.assertEqual(transform.call_count, 2)
+
+
+    class MetricRegressionTests(unittest.TestCase):
+        def test_static_metric_error_sentinels_are_not_compared(self):
+            violations = check_metric_violations(
+                {"ncloc": -1, "cyclomatic_complexity": -2},
+                {"ncloc": 20, "cyclomatic_complexity": 5.0},
+            )
+
+            self.assertNotIn("ncloc", violations)
+            self.assertNotIn("cyclomatic_complexity", violations)
+
+        def test_static_metric_error_sentinels_display_as_unavailable(self):
+            for sentinel in (-1, -1.0, -2, -2.0):
+                with self.subTest(sentinel=sentinel):
+                    self.assertEqual(format_value(sentinel), "N/A")
+                    self.assertEqual(format_decimal(sentinel), "N/A")
+
+
+    class ProviderMetadataTests(unittest.TestCase):
+        @patch("llms.mr_helper.update_costs")
+        def test_helper_usage_is_sent_to_cost_tracker(self, update_costs):
+            usage = SimpleNamespace(prompt_tokens=10, completion_tokens=4, total_tokens=14)
+            response = SimpleNamespace(
+                choices=[SimpleNamespace(
+                    finish_reason="stop",
+                    message=SimpleNamespace(content="answer"),
+                )],
+                usage=usage,
+            )
+            helper = MRHelper.__new__(MRHelper)
+            helper.client = SimpleNamespace(
+                chat=SimpleNamespace(
+                    completions=SimpleNamespace(create=lambda **kwargs: response),
+                ),
+            )
+            helper._model_name = "helper-model"
+            helper._last_usage = None
+
+            with patch("llms.mr_helper._log_helper_call"):
+                self.assertEqual(helper.transform("system", "user"), "answer")
+
+            update_costs.assert_called_once_with(
+                "helper-model",
+                {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
+            )
+
+        @patch("llms.base.update_costs")
+        def test_claude_records_timing_and_stop_reason(self, _update_costs):
+            message = SimpleNamespace(
+                content=[SimpleNamespace(text="answer")],
+                stop_reason="end_turn",
+                usage=SimpleNamespace(input_tokens=10, output_tokens=4),
+            )
+            model = ClaudeModel.__new__(ClaudeModel)
+            model._model_name = "claude-test"
+            model.client = SimpleNamespace(
+                messages=SimpleNamespace(create=lambda **kwargs: message),
+            )
+
+            self.assertEqual(model.generate("prompt"), "answer")
+            self.assertIsInstance(model.last_call_time, float)
+            self.assertEqual(model.last_finish_reason, "end_turn")
+
+        @patch("llms.base.update_costs")
+        def test_gemini_records_timing_and_finish_reason(self, _update_costs):
+            finish_reason = SimpleNamespace(name="MAX_TOKENS")
+            response = SimpleNamespace(
+                text="answer",
+                candidates=[SimpleNamespace(finish_reason=finish_reason)],
+                usage_metadata=SimpleNamespace(
+                    prompt_token_count=10,
+                    candidates_token_count=4,
+                    total_token_count=14,
+                ),
+            )
+            model = GeminiModel.__new__(GeminiModel)
+            model._model_name = "gemini-test"
+            model.client = SimpleNamespace(
+                models=SimpleNamespace(generate_content=lambda **kwargs: response),
+            )
+
+            self.assertEqual(model.generate("prompt"), "answer")
+            self.assertIsInstance(model.last_call_time, float)
+            self.assertEqual(model.last_finish_reason, "MAX_TOKENS")
+
+        def test_runner_collects_finish_reason(self):
+            model = SimpleNamespace(
+                last_usage={"prompt_tokens": 1, "completion_tokens": 1},
+                last_call_time=0.25,
+                last_finish_reason="stop",
+                generate=lambda prompt: "answer",
+            )
+            runner = PipelineRunner([], [], delay=0)
+            totals = {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "thinking_tokens": 0,
+                "reported": False,
+            }
+
+            generated = runner._generate_responses(model, "prompt", totals)
+
+            self.assertEqual(generated.primary_finish_reason, "stop")
+
+
+    if __name__ == "__main__":
+        unittest.main()
