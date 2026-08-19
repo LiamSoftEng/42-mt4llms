@@ -12,6 +12,20 @@ report.py importing back from results_writer.py would be circular.
 from config.settings import METRIC_VARIANCE_THRESHOLDS, get_metric_threshold
 
 
+_ERROR_SENTINELS = {
+    "ncloc": {-1},
+    "cyclomatic_complexity": {-1, -2},
+}
+
+
+def _is_valid_metric_value(metric_name: str, value) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and value not in _ERROR_SENTINELS.get(metric_name, set())
+    )
+
+
 def check_metric_violations(base_row: dict, followup_row: dict) -> dict:
     """
     Compare base vs followup metric values against METRIC_VARIANCE_THRESHOLDS.
@@ -24,17 +38,16 @@ def check_metric_violations(base_row: dict, followup_row: dict) -> dict:
     "threshold":...}} for every metric that breached its threshold. Metrics
     missing on either side, or with no configured threshold, are skipped.
     """
-    question_id = followup_row.get("question_id") or base_row.get("question_id")
     violations: dict = {}
 
     for metric_name in METRIC_VARIANCE_THRESHOLDS:
-        threshold = get_metric_threshold(metric_name, question_id)
+        threshold = get_metric_threshold(metric_name)
         if threshold is None:
             continue
 
         if metric_name == "code_sim":
             followup_value = followup_row.get("code_sim")
-            if not isinstance(followup_value, (int, float)):
+            if not _is_valid_metric_value(metric_name, followup_value):
                 continue
             if followup_value < threshold:
                 violations["code_sim"] = {
@@ -47,7 +60,9 @@ def check_metric_violations(base_row: dict, followup_row: dict) -> dict:
 
         base_value = base_row.get(metric_name)
         followup_value = followup_row.get(metric_name)
-        if not isinstance(base_value, (int, float)) or not isinstance(followup_value, (int, float)):
+        if not _is_valid_metric_value(metric_name, base_value) or not _is_valid_metric_value(
+            metric_name, followup_value
+        ):
             continue
 
         delta = followup_value - base_value

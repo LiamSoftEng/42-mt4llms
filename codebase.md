@@ -1,10 +1,10 @@
 # 42-mt4llms — Full Codebase Reference
 
-Auto-generated from the working tree. File contents below are stored in 
+Auto-generated from the working tree. File contents below are stored in
 4-space-indented code blocks so any literal ``` inside source is preserved.
 
 - Total files: 38
-- Total bytes: 194,829
+- Total bytes: 200969
 
 ## Excluded from this document
 
@@ -30,6 +30,7 @@ data/loader.py
 evaluation/executor.py
 evaluation/harness/functional.py
 evaluation/harness/stdin.py
+evaluation/metric_rows.py
 evaluation/metric_violations.py
 evaluation/metrics.py
 evaluation/paths.py
@@ -41,9 +42,7 @@ INSTRUCTIONS.md
 llms/__init__.py
 llms/base.py
 llms/claude_model.py
-llms/deepseek_model.py
 llms/gemini_model.py
-llms/grok_model.py
 llms/mr_helper.py
 llms/openai_model.py
 main.py
@@ -57,6 +56,7 @@ README.md
 requirements.txt
 run_all_mrs.py
 runtests.py
+tests/test_regressions.py
 ```
 
 ---
@@ -64,13 +64,12 @@ runtests.py
 ## .env.example
 
 ```text
-File: .env.example (156 bytes)
+File: .env.example (116 bytes)
 ```
 
     ANTHROPIC_API_KEY=your_anthropic_key_here
     OPENAI_API_KEY=your_openai_key_here
     GOOGLE_API_KEY=your_google_key_here
-    DEEPSEEK_API_KEY=your_deepseek_key_here
 
 ---
 
@@ -83,31 +82,30 @@ File: .gitignore (196 bytes)
     # Environment
     .env
     venv/
-     
+
     # Results
     results/
-     
+
     # HuggingFace cache
     ~/.cache/huggingface/
-     
+
     # Python
     __pycache__/
     *.py[cod]
     *.egg-info/
     dist/
     build/
-     
+
     # OS
     .DS_Store
     Thumbs.db
-
 
 ---
 
 ## compare_repeats.py
 
 ```text
-File: compare_repeats.py (13614 bytes)
+File: compare_repeats.py (15818 bytes)
 ```
 
     """
@@ -124,14 +122,15 @@ File: compare_repeats.py (13614 bytes)
 
     import argparse
     import csv
+    import json
     import sys
     from contextlib import redirect_stdout, redirect_stderr
     from pathlib import Path
     from statistics import mean, stdev
 
-    from runtests import run_tests, _Tee
+    from runtests import Tee, run_tests
     from evaluation.paths import build_results_path
-    from evaluation.report import _CSS, _fmt_duration, _pass_badge
+    from evaluation.report import REPORT_CSS, format_duration, pass_badge
 
 
     def _resolve_dir(model: str | None, dir_arg: str | None) -> Path:
@@ -142,9 +141,12 @@ File: compare_repeats.py (13614 bytes)
         return build_results_path(model, None, None).parent / "repeats"
 
 
-    def _mean_metric(rows: list[dict], key: str) -> float | None:
-        values = [r[key] for r in rows if isinstance(r.get(key), (int, float)) and r.get(key) != -1]
-        return round(mean(values), 3) if values else None
+    def _numeric_mean(values, digits: int | None = None) -> float | None:
+        numbers = [value for value in values if isinstance(value, (int, float)) and value != -1]
+        if not numbers:
+            return None
+        result = mean(numbers)
+        return round(result, digits) if digits is not None else result
 
 
     def _fmt_number(value: float | None) -> str:
@@ -153,9 +155,52 @@ File: compare_repeats.py (13614 bytes)
         return f"{value:,.1f}"
 
 
-    def _mean_list(values: list) -> float | None:
-        nums = [v for v in values if isinstance(v, (int, float)) and v != -1]
-        return mean(nums) if nums else None
+    _QUESTION_METRIC_KEYS = ("pass", "ncloc", "cc", "tokens", "call_time")
+
+
+    def _question_row(entry: dict, completed_runs: int) -> dict:
+        """Create an aligned per-question row, prefilled for earlier repeats."""
+        return {
+            "question_id": entry.get("question_id") or entry["id"],
+            "question_title": entry.get("question_title"),
+            "difficulty": entry.get("difficulty"),
+            "platform": entry.get("platform"),
+            **{key: [None] * completed_runs for key in _QUESTION_METRIC_KEYS},
+        }
+
+
+    def _record_repeat_questions(
+        per_question: dict[str, dict],
+        raw_results: list[dict],
+        metric_rows: list[dict],
+        run_index: int,
+    ) -> None:
+        """Add one repeat while preserving an explicit slot for every question."""
+        raw_by_id = {
+            entry.get("question_id"): entry
+            for entry in raw_results
+            if isinstance(entry, dict) and entry.get("question_id")
+        }
+        metrics_by_id = {row["id"]: row for row in metric_rows}
+
+        for q in per_question.values():
+            for key in _QUESTION_METRIC_KEYS:
+                q[key].append(None)
+
+        for qid in dict.fromkeys([*raw_by_id, *metrics_by_id]):
+            entry = metrics_by_id.get(qid) or raw_by_id[qid]
+            if qid not in per_question:
+                per_question[qid] = _question_row(entry, run_index + 1)
+
+            row = metrics_by_id.get(qid)
+            if row is None:
+                continue
+            q = per_question[qid]
+            q["pass"][run_index] = row.get("source_passed")
+            q["ncloc"][run_index] = row.get("source_ncloc")
+            q["cc"][run_index] = row.get("source_cc")
+            q["tokens"][run_index] = row.get("source_total_tokens")
+            q["call_time"][run_index] = row.get("source_llm_call_time")
 
 
     def _write_html_report(
@@ -184,6 +229,9 @@ File: compare_repeats.py (13614 bytes)
         mean_call = _avg("mean_llm_call_time")
         inconsistent_pct = round(flips / total_questions * 100) if total_questions else 0
 
+        mean_pass_text = f"{mean_pass * 100:.1f}%" if mean_pass is not None else "N/A"
+        mean_extract_text = f"{mean_extract * 100:.1f}%" if mean_extract is not None else "N/A"
+
         stats_html = f"""
             <div class="stat-box">
                 <div class="stat-label">Runs compared</div>
@@ -192,12 +240,12 @@ File: compare_repeats.py (13614 bytes)
             </div>
             <div class="stat-box">
                 <div class="stat-label">Mean pass rate</div>
-                <div class="stat-value">{mean_pass * 100:.1f}%</div>
+                <div class="stat-value">{mean_pass_text}</div>
                 <div class="stat-sub">across {n_runs} runs</div>
             </div>
             <div class="stat-box">
                 <div class="stat-label">Mean extractable</div>
-                <div class="stat-value">{mean_extract * 100:.1f}%</div>
+                <div class="stat-value">{mean_extract_text}</div>
                 <div class="stat-sub">across {n_runs} runs</div>
             </div>
             <div class="stat-box">
@@ -222,7 +270,7 @@ File: compare_repeats.py (13614 bytes)
             </div>
             <div class="stat-box">
                 <div class="stat-label">Mean LLM call time</div>
-                <div class="stat-value">{_fmt_duration(mean_call)}</div>
+                <div class="stat-value">{format_duration(mean_call)}</div>
                 <div class="stat-sub">per problem</div>
             </div>"""
 
@@ -238,7 +286,7 @@ File: compare_repeats.py (13614 bytes)
                     <td>{_fmt_number(r['mean_ncloc'])}</td>
                     <td>{_fmt_number(r['mean_cc'])}</td>
                     <td>{_fmt_number(r['mean_total_tokens'])}</td>
-                    <td>{_fmt_duration(r['mean_llm_call_time'])}</td>
+                    <td>{format_duration(r['mean_llm_call_time'])}</td>
                 </tr>"""
 
         table_headers = """
@@ -255,7 +303,7 @@ File: compare_repeats.py (13614 bytes)
         for q in per_question.values():
             passes = q["pass"]
             run_badges = "".join(
-                f"<td>{_pass_badge(p)}</td>" for p in passes
+                f"<td>{pass_badge(p)}</td>" for p in passes
             )
             non_none = {p for p in passes if p is not None}
             consistent = len(non_none) <= 1
@@ -279,10 +327,10 @@ File: compare_repeats.py (13614 bytes)
                     </td>
                     {run_badges}
                     <td>{consistency_badge}</td>
-                    <td>{_fmt_number(_mean_list(q["ncloc"]))}</td>
-                    <td>{_fmt_number(_mean_list(q["cc"]))}</td>
-                    <td>{_fmt_number(_mean_list(q["tokens"]))}</td>
-                    <td>{_fmt_duration(_mean_list(q["call_time"]))}</td>
+                    <td>{_fmt_number(_numeric_mean(q["ncloc"]))}</td>
+                    <td>{_fmt_number(_numeric_mean(q["cc"]))}</td>
+                    <td>{_fmt_number(_numeric_mean(q["tokens"]))}</td>
+                    <td>{format_duration(_numeric_mean(q["call_time"]))}</td>
                 </tr>"""
 
         run_head_cells = "".join(f"<th>R{i+1}</th>" for i in range(n_runs))
@@ -312,7 +360,7 @@ File: compare_repeats.py (13614 bytes)
     <meta charset="UTF-8">
     <title>Repeat comparison — {repeats_dir}</title>
     <style>
-    {_CSS}
+    {REPORT_CSS}
       h2 {{ font-size: 1.1rem; margin: 2rem 0 0.75rem; color: #212529; }}
     </style>
     </head>
@@ -349,10 +397,13 @@ File: compare_repeats.py (13614 bytes)
         per_repeat = []
         per_question: dict[str, dict] = {}
 
-        for f in files:
+        for run_index, f in enumerate(files):
+            with open(f, encoding="utf-8") as results_fh:
+                raw_results = json.load(results_fh)
+
             log_path = f.with_suffix(".tests.log")
             with open(log_path, "w", encoding="utf-8") as log_fh:
-                with redirect_stdout(_Tee(sys.stdout, log_fh)), redirect_stderr(_Tee(sys.stdout, log_fh)):
+                with redirect_stdout(Tee(sys.stdout, log_fh)), redirect_stderr(Tee(sys.stdout, log_fh)):
                     metric_rows = run_tests(
                         str(f),
                         csv_path=str(f.with_suffix(".metrics.csv")),
@@ -369,29 +420,17 @@ File: compare_repeats.py (13614 bytes)
                 "passed": passed,
                 "pass_rate": round(passed / total, 4) if total else None,
                 "extractable_rate": round(extractable / total, 4) if total else None,
-                "mean_ncloc": _mean_metric(metric_rows, "source_ncloc"),
-                "mean_cc": _mean_metric(metric_rows, "source_cc"),
-                "mean_total_tokens": _mean_metric(metric_rows, "source_total_tokens"),
-                "mean_llm_call_time": _mean_metric(metric_rows, "source_llm_call_time"),
+                "mean_ncloc": _numeric_mean((row.get("source_ncloc") for row in metric_rows), 3),
+                "mean_cc": _numeric_mean((row.get("source_cc") for row in metric_rows), 3),
+                "mean_total_tokens": _numeric_mean((row.get("source_total_tokens") for row in metric_rows), 3),
+                "mean_llm_call_time": _numeric_mean((row.get("source_llm_call_time") for row in metric_rows), 3),
             })
 
-            for row in metric_rows:
-                q = per_question.setdefault(row["id"], {
-                    "question_id": row["id"],
-                    "question_title": row.get("question_title"),
-                    "difficulty": row.get("difficulty"),
-                    "platform": row.get("platform"),
-                    "pass": [],
-                    "ncloc": [],
-                    "cc": [],
-                    "tokens": [],
-                    "call_time": [],
-                })
-                q["pass"].append(row.get("source_passed"))
-                q["ncloc"].append(row.get("source_ncloc"))
-                q["cc"].append(row.get("source_cc"))
-                q["tokens"].append(row.get("source_total_tokens"))
-                q["call_time"].append(row.get("source_llm_call_time"))
+            # run_tests deliberately omits rows that cannot be evaluated (for
+            # example an LLM error or a response with no extractable code). Build
+            # the question set from the raw results as well, so those omissions
+            # remain in their correct repeat column and render as N/A.
+            _record_repeat_questions(per_question, raw_results, metric_rows, run_index)
 
         # ── Comparison table ─────────────────────────────────────────────────────
         print(f"\n{'='*72}")
@@ -430,7 +469,10 @@ File: compare_repeats.py (13614 bytes)
         with open(path, "w", encoding="utf-8", newline="") as fh:
             writer = csv.DictWriter(fh, fieldnames=list(per_repeat[0].keys()))
             writer.writeheader()
-            writer.writerows(per_repeat)
+            writer.writerows(
+                {key: "N/A" if value is None else value for key, value in row.items()}
+                for row in per_repeat
+            )
         print(f"\n  Wrote comparison CSV -> {path}")
 
         html_path = Path(html_out) if html_out else repeats_dir / "comparison.html"
@@ -454,13 +496,12 @@ File: compare_repeats.py (13614 bytes)
 
         compare(_resolve_dir(args.model, args.dir), csv_out=args.csv, html_out=args.html)
 
-
 ---
 
 ## config/run_config.py
 
 ```text
-File: config/run_config.py (1431 bytes)
+File: config/run_config.py (1554 bytes)
 ```
 
     """
@@ -477,10 +518,10 @@ File: config/run_config.py (1431 bytes)
 
     CONFIG = {
         "models": ["openai"],
-        "n": 1,
+        "n": 2,
         "after": None,
         "difficulty": ["easy"],
-        "mr": 5,
+        "mr": [3, 4, 5],  # Use a list of IDs, one ID, "all", or None.
         "mr_only": False,
         "run_tests": True,
         "repeats": 1,
@@ -533,13 +574,12 @@ File: config/run_config.py (1431 bytes)
     if __name__ == "__main__":
         raise SystemExit(main())
 
-
 ---
 
 ## config/settings.py
 
 ```text
-File: config/settings.py (3003 bytes)
+File: config/settings.py (1956 bytes)
 ```
 
     import os
@@ -547,45 +587,36 @@ File: config/settings.py (3003 bytes)
 
     load_dotenv()
 
-    os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
-    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
-    os.environ.setdefault("HUGGINGFACE_HUB_DISABLE_PROGRESS_BARS", "1")
-    os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
-    os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
+    HUGGINGFACE_ENV_DEFAULTS = {
+        "HF_HUB_DISABLE_SYMLINKS_WARNING": "1",
+        "HF_HUB_DISABLE_PROGRESS_BARS": "1",
+        "HUGGINGFACE_HUB_DISABLE_PROGRESS_BARS": "1",
+        "TRANSFORMERS_VERBOSITY": "error",
+        "TRANSFORMERS_NO_ADVISORY_WARNINGS": "1",
+    }
+
+
+    def configure_huggingface_environment() -> None:
+        for name, value in HUGGINGFACE_ENV_DEFAULTS.items():
+            os.environ.setdefault(name, value)
+
+
+    configure_huggingface_environment()
 
     # API Keys
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-    DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
-    GROK_API_KEY = os.getenv("GROK_API_KEY")
 
-    # Model names (TODO: change please, based on knowledge cutoffs + call costs)
-    MR_HELPER_MODEL = "gpt-5.6-luna" #find fast, cheap model for MR helper, just putting gpt-5-nano for now
+    # Model names
+    MR_HELPER_MODEL = "gpt-5-nano"
     CLAUDE_MODEL = "claude-sonnet-4-6"
-    OPENAI_MODEL = "gpt-5.6-sol"
+    OPENAI_MODEL = "gpt-5-nano"
     GEMINI_MODEL = "gemini-2.5-flash"
-    DEEPSEEK_MODEL = "google/gemma-2-2b-it"
-    # DEEPSEEK_MODEL = "minimaxai/minimax-m2.7"
     CODE_EMBEDDING_MODEL = "Salesforce/codet5p-220m"
     CODE_TOKENIZER_MODEL = "Salesforce/codet5-base"
 
-    # Groq model options (uncomment one)
-    # GROK_MODEL = "openai/gpt-oss-20b"
-    GROK_MODEL = "openai/gpt-oss-120b"
-    # GROK_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
-    # GROK_MODEL = "llama-3.3-70b-versatile"
-    # GROK_MODEL = "llama-3.1-8b-instant"
-    # GROK_MODEL = "groq/compound"
-    # GROK_MODEL = "groq/compound-mini"
-    # GROK_MODEL = "allam-2-7b"
-    # GROK_MODEL = "meta-llama/llama-prompt-guard-2-22m"
-    # GROK_MODEL = "meta-llama/llama-prompt-guard-2-86m"
-    # GROK_MODEL = "openai/gpt-oss-safeguard-20b"
-    # GROK_MODEL = "qwen/qwen3-32b"
-
-    # Generation params (TODO: adjust as needed)
-    MR_HELPER_TOKENS = 8192
+    # Generation parameters
     MAX_TOKENS = 8192
     TEMPERATURE = 0  # Deterministic outputs for reproducibility
 
@@ -603,8 +634,6 @@ File: config/settings.py (3003 bytes)
         CLAUDE_MODEL: {"prompt": 0.0, "completion": 0.0},
         OPENAI_MODEL: {"prompt": 5, "completion": 30},
         GEMINI_MODEL: {"prompt": 0.0, "completion": 0.0},
-        DEEPSEEK_MODEL: {"prompt": 0.0, "completion": 0.0},
-        GROK_MODEL: {"prompt": 0.05, "completion": 0.40},
     }
 
     METRIC_VARIANCE_THRESHOLDS = {
@@ -616,9 +645,7 @@ File: config/settings.py (3003 bytes)
         "code_sim": 0.85,  # minimum allowed value, not a delta
     }
 
-    def get_metric_threshold(metric_name: str, question_id: str | None = None) -> float | None:
-        # Future: check a per-question override table first, keyed by question_id.
-        # For now this always falls through to the global default.
+    def get_metric_threshold(metric_name: str) -> float | None:
         return METRIC_VARIANCE_THRESHOLDS.get(metric_name)
 
 ---
@@ -743,7 +770,6 @@ File: cost_tracker.py (3337 bytes)
         _WARNED = True
         print(f"[cost_tracker] {message}", file=sys.stderr)
 
-
 ---
 
 ## data/decoder.py
@@ -786,7 +812,7 @@ File: data/decoder.py (779 bytes)
 ## data/loader.py
 
 ```text
-File: data/loader.py (3117 bytes)
+File: data/loader.py (3182 bytes)
 ```
 
     from datetime import datetime
@@ -966,7 +992,7 @@ File: evaluation/executor.py (3117 bytes)
 ## evaluation/harness/functional.py
 
 ```text
-File: evaluation/harness/functional.py (3049 bytes)
+File: evaluation/harness/functional.py (3050 bytes)
 ```
 
     """
@@ -1014,7 +1040,7 @@ File: evaluation/harness/functional.py (3049 bytes)
         return ", ".join(args)
 
 
-    def run(code: str, func_name: str, test_input: str, timeout: int = 10, debug: bool = False) -> tuple[str, str]:
+    def run(code: str, func_name: str, test_input: str, timeout: int = 100, debug: bool = False) -> tuple[str, str]:
         """
         Execute a functional-style solution.
 
@@ -1072,7 +1098,7 @@ File: evaluation/harness/functional.py (3049 bytes)
 ## evaluation/harness/stdin.py
 
 ```text
-File: evaluation/harness/stdin.py (1296 bytes)
+File: evaluation/harness/stdin.py (1298 bytes)
 ```
 
     """
@@ -1087,12 +1113,12 @@ File: evaluation/harness/stdin.py (1296 bytes)
     import os
 
 
-    def run(code: str, test_input: str, timeout: int = 10) -> tuple[bool, str, str]:
+    def run(code: str, test_input: str, timeout: int = 100) -> tuple[str, str]:
         """
         Execute code with the given stdin input.
 
         Returns:
-            (passed, actual_output, error_message)
+            The subprocess's ``(stdout, stderr)`` text.
         """
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
             f.write(code)
@@ -1121,10 +1147,135 @@ File: evaluation/harness/stdin.py (1296 bytes)
 
 ---
 
+## evaluation/metric_rows.py
+
+```text
+File: evaluation/metric_rows.py (5559 bytes)
+```
+
+    """Shared serializers for the metric rows produced by ``runtests.py``."""
+
+    BASE_CSV_FIELDS = [
+        "id",
+        "extractable_code", "passes_tests", "source_passed",
+        "tests_passed", "tests_failed", "tests_total", "test_run_time",
+        "source_ncloc", "source_cc",
+        "source_mean_distance", "source_std_distance", "source_pairs",
+        "prompt_tokens", "completion_tokens", "total_tokens",
+        "thinking_tokens", "token_efficiency", "llm_call_time",
+    ]
+
+    FOLLOWUP_CSV_FIELDS = [
+        "followup_extractable", "followup_passes_tests", "passes_same_tests", "followup_passed",
+        "followup_tests_passed", "followup_tests_failed", "followup_tests_total",
+        "followup_test_run_time", "followup_ncloc", "followup_cc",
+        "followup_mean_distance", "followup_std_distance", "followup_pairs",
+        "followup_prompt_tokens", "followup_completion_tokens", "followup_total_tokens",
+        "followup_thinking_tokens", "followup_token_efficiency", "followup_llm_call_time",
+        "code_sim", "mr_holds",
+    ]
+
+
+    def serialize_metric_side(row: dict, side: str) -> dict:
+        """Convert an internal metric row to the stable per-side results schema."""
+        if side not in {"source", "followup"}:
+            raise ValueError(f"Unknown metric side: {side}")
+
+        followup = side == "followup"
+        prefix = "followup_" if followup else "source_"
+        variability = row.get(f"{prefix}variability") or {}
+        tests_prefix = "followup_" if followup else ""
+
+        output = {
+            "question_id": row["id"],
+            "question_title": row.get("question_title"),
+            "difficulty": row.get("difficulty"),
+            "platform": row.get("platform"),
+            "extractable_code": row.get(f"{prefix}extractable"),
+            "passes_tests": row.get(f"{prefix}passes_tests"),
+            "passed": row.get(f"{prefix}passed"),
+            "tests_passed": row.get(f"{tests_prefix}tests_passed"),
+            "tests_failed": row.get(f"{tests_prefix}tests_failed"),
+            "tests_total": row.get(f"{tests_prefix}tests_total"),
+            "test_run_time": row.get(f"{prefix}test_run_time"),
+            "ncloc": row.get(f"{prefix}ncloc"),
+            "cyclomatic_complexity": row.get(f"{prefix}cc"),
+            "mean_distance": variability.get("mean_distance"),
+            "std_distance": variability.get("std_distance"),
+            "n_pairs": variability.get("n_pairs"),
+            "prompt_tokens": row.get(f"{prefix}prompt_tokens"),
+            "completion_tokens": row.get(f"{prefix}completion_tokens"),
+            "total_tokens": row.get(f"{prefix}total_tokens"),
+            "thinking_tokens": row.get(f"{prefix}thinking_tokens"),
+            "token_efficiency": row.get(f"{prefix}token_efficiency"),
+            "llm_call_time": row.get(f"{prefix}llm_call_time"),
+        }
+        if followup:
+            output.update({
+                "passes_same_tests": row.get("passes_same_tests"),
+                "mr_holds": row.get("mr_holds"),
+                "code_sim": row.get("code_sim"),
+            })
+        return output
+
+
+    def serialize_metric_csv_row(row: dict, has_mr: bool) -> dict:
+        """Flatten a metric row to the existing CSV column names."""
+        source = serialize_metric_side(row, "source")
+        output = {
+            "id": source["question_id"],
+            "extractable_code": source["extractable_code"],
+            "passes_tests": source["passes_tests"],
+            "source_passed": source["passed"],
+            "tests_passed": source["tests_passed"],
+            "tests_failed": source["tests_failed"],
+            "tests_total": source["tests_total"],
+            "test_run_time": source["test_run_time"],
+            "source_ncloc": source["ncloc"],
+            "source_cc": source["cyclomatic_complexity"],
+            "source_mean_distance": source["mean_distance"],
+            "source_std_distance": source["std_distance"],
+            "source_pairs": source["n_pairs"],
+            "prompt_tokens": source["prompt_tokens"],
+            "completion_tokens": source["completion_tokens"],
+            "total_tokens": source["total_tokens"],
+            "thinking_tokens": source["thinking_tokens"],
+            "token_efficiency": source["token_efficiency"],
+            "llm_call_time": source["llm_call_time"],
+        }
+        if has_mr:
+            followup = serialize_metric_side(row, "followup")
+            output.update({
+                "followup_extractable": followup["extractable_code"],
+                "followup_passes_tests": followup["passes_tests"],
+                "passes_same_tests": followup["passes_same_tests"],
+                "followup_passed": followup["passed"],
+                "followup_tests_passed": followup["tests_passed"],
+                "followup_tests_failed": followup["tests_failed"],
+                "followup_tests_total": followup["tests_total"],
+                "followup_test_run_time": followup["test_run_time"],
+                "followup_ncloc": followup["ncloc"],
+                "followup_cc": followup["cyclomatic_complexity"],
+                "followup_mean_distance": followup["mean_distance"],
+                "followup_std_distance": followup["std_distance"],
+                "followup_pairs": followup["n_pairs"],
+                "followup_prompt_tokens": followup["prompt_tokens"],
+                "followup_completion_tokens": followup["completion_tokens"],
+                "followup_total_tokens": followup["total_tokens"],
+                "followup_thinking_tokens": followup["thinking_tokens"],
+                "followup_token_efficiency": followup["token_efficiency"],
+                "followup_llm_call_time": followup["llm_call_time"],
+                "code_sim": followup["code_sim"],
+                "mr_holds": followup["mr_holds"],
+            })
+        return output
+
+---
+
 ## evaluation/metric_violations.py
 
 ```text
-File: evaluation/metric_violations.py (2510 bytes)
+File: evaluation/metric_violations.py (2799 bytes)
 ```
 
     """
@@ -1141,6 +1292,20 @@ File: evaluation/metric_violations.py (2510 bytes)
     from config.settings import METRIC_VARIANCE_THRESHOLDS, get_metric_threshold
 
 
+    _ERROR_SENTINELS = {
+        "ncloc": {-1},
+        "cyclomatic_complexity": {-1, -2},
+    }
+
+
+    def _is_valid_metric_value(metric_name: str, value) -> bool:
+        return (
+            isinstance(value, (int, float))
+            and not isinstance(value, bool)
+            and value not in _ERROR_SENTINELS.get(metric_name, set())
+        )
+
+
     def check_metric_violations(base_row: dict, followup_row: dict) -> dict:
         """
         Compare base vs followup metric values against METRIC_VARIANCE_THRESHOLDS.
@@ -1153,17 +1318,16 @@ File: evaluation/metric_violations.py (2510 bytes)
         "threshold":...}} for every metric that breached its threshold. Metrics
         missing on either side, or with no configured threshold, are skipped.
         """
-        question_id = followup_row.get("question_id") or base_row.get("question_id")
         violations: dict = {}
 
         for metric_name in METRIC_VARIANCE_THRESHOLDS:
-            threshold = get_metric_threshold(metric_name, question_id)
+            threshold = get_metric_threshold(metric_name)
             if threshold is None:
                 continue
 
             if metric_name == "code_sim":
                 followup_value = followup_row.get("code_sim")
-                if not isinstance(followup_value, (int, float)):
+                if not _is_valid_metric_value(metric_name, followup_value):
                     continue
                 if followup_value < threshold:
                     violations["code_sim"] = {
@@ -1176,7 +1340,9 @@ File: evaluation/metric_violations.py (2510 bytes)
 
             base_value = base_row.get(metric_name)
             followup_value = followup_row.get(metric_name)
-            if not isinstance(base_value, (int, float)) or not isinstance(followup_value, (int, float)):
+            if not _is_valid_metric_value(metric_name, base_value) or not _is_valid_metric_value(
+                metric_name, followup_value
+            ):
                 continue
 
             delta = followup_value - base_value
@@ -1195,7 +1361,7 @@ File: evaluation/metric_violations.py (2510 bytes)
 ## evaluation/metrics.py
 
 ```text
-File: evaluation/metrics.py (12131 bytes)
+File: evaluation/metrics.py (11902 bytes)
 ```
 
     """
@@ -1213,6 +1379,7 @@ File: evaluation/metrics.py (12131 bytes)
     from radon.complexity import cc_visit
 
     from evaluation.executor import extract_code
+    from config.settings import configure_huggingface_environment
 
 
     def _codesim_debug(message: str) -> None:
@@ -1242,11 +1409,7 @@ File: evaluation/metrics.py (12131 bytes)
         from config.settings import CODE_EMBEDDING_MODEL, CODE_TOKENIZER_MODEL
 
         os.environ.setdefault("DISABLE_SAFETENSORS_CONVERSION", "1")
-        os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
-        os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
-        os.environ.setdefault("HUGGINGFACE_HUB_DISABLE_PROGRESS_BARS", "1")
-        os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
-        os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
+        configure_huggingface_environment()
 
         warnings.filterwarnings(
             "ignore",
@@ -1536,7 +1699,7 @@ File: evaluation/metrics.py (12131 bytes)
 ## evaluation/paths.py
 
 ```text
-File: evaluation/paths.py (1759 bytes)
+File: evaluation/paths.py (1813 bytes)
 ```
 
     from pathlib import Path
@@ -1594,47 +1757,52 @@ File: evaluation/paths.py (1759 bytes)
         """Path for a single repeat's result file. repeat_index is 0-based."""
         return build_repeats_dir(model_name) / f"repeat-{repeat_index + 1:02d}.json"
 
-
 ---
 
 ## evaluation/report.py
 
 ```text
-File: evaluation/report.py (25598 bytes)
+File: evaluation/report.py (25839 bytes)
 ```
 
     """
-    Generates an HTML comparison report from base and followup results files.
-    The merged report (all.html) is composed from the verbatim bodies of the
-    individual per-run HTML reports, so its styling is identical to theirs.
+    Generates HTML comparison reports from base and followup results files.
+    Merged reports reuse the same section builder and styles as individual reports.
     """
 
     from pathlib import Path
     import json
-    import re
 
     from evaluation.paths import safe_name
     from evaluation.metric_violations import check_metric_violations
 
 
-    def _fmt(value, digits: int = 4) -> str:
+    def format_value(value, digits: int = 4) -> str:
+        if value is None or value in (-1, -2):
+            return "N/A"
         if isinstance(value, float):
             return f"{value:.{digits}f}"
-        if value is None or value == -1:
-            return "N/A"
         return str(value)
 
 
+    def format_decimal(value, digits: int = 4) -> str:
+        """Format numeric terminal-table values with a fixed decimal precision."""
+        if value is None or value in (-1, -2):
+            return "N/A"
+        return f"{value:.{digits}f}" if isinstance(value, (int, float)) else "N/A"
+
+
     def _delta(a, b) -> str:
-        if isinstance(a, (int, float)) and isinstance(b, (int, float)) and a != -1 and b != -1:
+        if (
+            isinstance(a, (int, float))
+            and isinstance(b, (int, float))
+            and not isinstance(a, bool)
+            and not isinstance(b, bool)
+            and a not in (-1, -2)
+            and b not in (-1, -2)
+        ):
             d = b - a
             return f"{d:+.2f}" if isinstance(d, float) else f"{d:+d}"
-        return "N/A"
-
-
-    def _pct(numerator, denominator) -> str:
-        if isinstance(numerator, int) and isinstance(denominator, int) and denominator > 0:
-            return f"{round(numerator / denominator * 100)}%"
         return "N/A"
 
 
@@ -1671,7 +1839,7 @@ File: evaluation/report.py (25598 bytes)
         return f'<span class="delta-neg"{title}>{text}</span>'
 
 
-    def _pass_badge(passed: bool | None) -> str:
+    def pass_badge(passed: bool | None) -> str:
         if passed is True:
             return '<span class="badge holds">PASS</span>'
         if passed is False:
@@ -1720,7 +1888,7 @@ File: evaluation/report.py (25598 bytes)
         return " ".join(parts) if parts else "N/A"
 
 
-    def _fmt_duration(seconds) -> str:
+    def format_duration(seconds) -> str:
         if not isinstance(seconds, (int, float)):
             return "N/A"
         seconds = round(seconds, 1)
@@ -1851,13 +2019,13 @@ File: evaluation/report.py (25598 bytes)
             b_test_t = f'{b.get("test_run_time"):.2f}s' if isinstance(b.get("test_run_time"), (int, float)) else "N/A"
             f_test_t = f'{f.get("test_run_time"):.2f}s' if has_mr and isinstance(f.get("test_run_time"), (int, float)) else "N/A"
 
-            row_total_time = _fmt_duration(_row_total_time(b, f, has_mr))
+            row_total_time = format_duration(_row_total_time(b, f, has_mr))
 
             # Highlight cells for metrics that breached their configured threshold
             # (config.settings.METRIC_VARIANCE_THRESHOLDS).
             delta_ncloc_html = _violation_span(_delta(b_ncloc, f_ncloc), metric_violations.get("ncloc"))
             delta_cc_html = _violation_span(_delta(b_cc, f_cc), metric_violations.get("cyclomatic_complexity"))
-            code_sim_html = _violation_span(_fmt(code_sim), metric_violations.get("code_sim"))
+            code_sim_html = _violation_span(format_value(code_sim), metric_violations.get("code_sim"))
             f_tok_html = _violation_span(
                 f_tok, metric_violations.get("total_tokens") or metric_violations.get("token_efficiency")
             )
@@ -1872,20 +2040,20 @@ File: evaluation/report.py (25598 bytes)
                         <span class="tag">{difficulty}</span>
                         <span class="tag">{platform}</span>
                     </td>
-                    <td>{b_tests}<br>{_pass_badge(b_passed)}</td>
-                    <td>{f_tests}<br>{_pass_badge(f_passed)}</td>
+                    <td>{b_tests}<br>{pass_badge(b_passed)}</td>
+                    <td>{f_tests}<br>{pass_badge(f_passed)}</td>
                     <td>{_mr_badge(mr_holds_val, metric_violations)}<br>{_bool_badge(passes_same, "SAME", "DIFF")}</td>
-                    <td>{_fmt(b_ncloc, 0)}</td>
-                    <td>{_fmt(f_ncloc, 0) if f_ncloc is not None else "N/A"}</td>
+                    <td>{format_value(b_ncloc, 0)}</td>
+                    <td>{format_value(f_ncloc, 0) if f_ncloc is not None else "N/A"}</td>
                     <td>{delta_ncloc_html}</td>
-                    <td>{_fmt(b_cc)}</td>
-                    <td>{_fmt(f_cc) if f_cc is not None else "N/A"}</td>
+                    <td>{format_value(b_cc)}</td>
+                    <td>{format_value(f_cc) if f_cc is not None else "N/A"}</td>
                     <td>{delta_cc_html}</td>
                     <td>{code_sim_html}</td>
-                    <td>{_fmt(b_mean_dist)}<br><small>±{_fmt(b_std_dist)}</small></td>
-                    <td>{_fmt(f_mean_dist)}<br><small>±{_fmt(f_std_dist)}</small></td>
-                    <td>{b_tok}<br><small>eff:{_fmt(b_eff, 3)}</small></td>
-                    <td>{f_tok_html}<br><small>eff:{_fmt(f_eff, 3)}</small></td>
+                    <td>{format_value(b_mean_dist)}<br><small>±{format_value(b_std_dist)}</small></td>
+                    <td>{format_value(f_mean_dist)}<br><small>±{format_value(f_std_dist)}</small></td>
+                    <td>{b_tok}<br><small>eff:{format_value(b_eff, 3)}</small></td>
+                    <td>{f_tok_html}<br><small>eff:{format_value(f_eff, 3)}</small></td>
                     <td>{b_llm_t}<br><small>test:{b_test_t}</small></td>
                     <td>{f_llm_t_html}<br><small>test:{f_test_t}</small></td>
                     <td>{row_total_time}</td>
@@ -1899,11 +2067,11 @@ File: evaluation/report.py (25598 bytes)
                         <span class="tag">{difficulty}</span>
                         <span class="tag">{platform}</span>
                     </td>
-                    <td>{b_tests}<br>{_pass_badge(b_passed)}</td>
-                    <td>{_fmt(b_ncloc, 0)}</td>
-                    <td>{_fmt(b_cc)}</td>
-                    <td>{_fmt(b_mean_dist)}<br><small>±{_fmt(b_std_dist)}</small></td>
-                    <td>{b_tok}<br><small>eff:{_fmt(b_eff, 3)}</small></td>
+                    <td>{b_tests}<br>{pass_badge(b_passed)}</td>
+                    <td>{format_value(b_ncloc, 0)}</td>
+                    <td>{format_value(b_cc)}</td>
+                    <td>{format_value(b_mean_dist)}<br><small>±{format_value(b_std_dist)}</small></td>
+                    <td>{b_tok}<br><small>eff:{format_value(b_eff, 3)}</small></td>
                     <td>{b_llm_t}<br><small>test:{b_test_t}</small></td>
                 </tr>"""
 
@@ -1913,7 +2081,6 @@ File: evaluation/report.py (25598 bytes)
 
         mr_section = ""
         followup_stat = ""
-        same_tests_stat = ""
 
         if has_mr:
             flw_pct = round(flw_passed / flw_total * 100) if flw_total else 0
@@ -1946,7 +2113,7 @@ File: evaluation/report.py (25598 bytes)
         total_time_stat = f"""
         <div class="stat-box">
             <div class="stat-label">Total time</div>
-            <div class="stat-value">{_fmt_duration(total_time)}</div>
+            <div class="stat-value">{format_duration(total_time)}</div>
             <div class="stat-sub">LLM calls + test execution, all rows</div>
         </div>"""
 
@@ -1959,7 +2126,6 @@ File: evaluation/report.py (25598 bytes)
             </div>
             {followup_stat}
             {mr_section}
-            {same_tests_stat}
             {total_time_stat}"""
 
         # ── Table headers ────────────────────────────────────────────────────────
@@ -2000,7 +2166,7 @@ File: evaluation/report.py (25598 bytes)
         }
 
 
-    _CSS = """
+    REPORT_CSS = """
       body { font-family: system-ui, sans-serif; margin: 2rem; background: #f8f9fa; color: #212529; font-size: 0.9rem; }
       h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
       .subtitle { color: #6c757d; font-size: 0.85rem; margin-bottom: 1.5rem; }
@@ -2057,7 +2223,7 @@ File: evaluation/report.py (25598 bytes)
     <meta charset="UTF-8">
     <title>MT Report — {model_name}</title>
     <style>
-    {_CSS}
+    {REPORT_CSS}
     </style>
     </head>
     <body>
@@ -2196,7 +2362,7 @@ File: evaluation/report.py (25598 bytes)
     <meta charset="UTF-8">
     <title>MT Report — {model_name}</title>
     <style>
-    {_CSS}
+    {REPORT_CSS}
     {_MERGED_CSS}
     </style>
     </head>
@@ -2218,7 +2384,7 @@ File: evaluation/report.py (25598 bytes)
 ## evaluation/results_writer.py
 
 ```text
-File: evaluation/results_writer.py (14743 bytes)
+File: evaluation/results_writer.py (10580 bytes)
 ```
 
     """
@@ -2228,11 +2394,27 @@ File: evaluation/results_writer.py (14743 bytes)
 
     import json
     import time
+    from dataclasses import fields
     from pathlib import Path
 
     from evaluation.report import generate_html_report
     from evaluation.paths import build_results_dir, mr_folder_name, safe_name
     from evaluation.metric_violations import check_metric_violations
+    from evaluation.metric_rows import serialize_metric_side
+    from evaluation.runner import LLMResult
+
+
+    _RESULT_FIELD_NAMES = tuple(field.name for field in fields(LLMResult))
+    _FOLLOWUP_FIELDS = {
+        name for name in _RESULT_FIELD_NAMES
+        if name == "relation" or name.startswith("followup_")
+    }
+    _BASE_FIELDS = set(_RESULT_FIELD_NAMES) - _FOLLOWUP_FIELDS
+    _FOLLOWUP_CONTEXT_FIELDS = (
+        set(_RESULT_FIELD_NAMES[:_RESULT_FIELD_NAMES.index("error")])
+        - {"instruction_prefix", "instruction_suffix", "response"}
+    )
+    _FOLLOWUP_KEEP_FIELDS = _FOLLOWUP_CONTEXT_FIELDS | _FOLLOWUP_FIELDS
 
 
     def _merge_by_question_id(existing_path: Path, new_entries: list[dict]) -> list[dict]:
@@ -2261,19 +2443,12 @@ File: evaluation/results_writer.py (14743 bytes)
         (e.g. a single --mr run's questions), while base.json is meant to
         be a running ledger across all runs.
         """
-        FOLLOWUP_FIELDS = {
-            "relation", "followup_instruction_prefix", "followup_instruction_suffix",
-            "followup_question", "followup_response", "followup_response_samples",
-            "followup_error", "followup_prompt_tokens", "followup_completion_tokens",
-            "followup_total_tokens", "followup_thinking_tokens", "followup_token_efficiency",
-            "followup_llm_call_time",
-        }
         out_dir = Path(results_dir) / safe_name(model_name) / "base"
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / "base.json"
 
         stripped = [
-            {k: v for k, v in entry.items() if k not in FOLLOWUP_FIELDS}
+            {k: v for k, v in entry.items() if k in _BASE_FIELDS}
             for entry in results
         ]
 
@@ -2296,22 +2471,13 @@ File: evaluation/results_writer.py (14743 bytes)
         Write followup LLM content to results/<model>/mr-XX-name/followup.json.
         Keeps question context + followup fields only.
         """
-        KEEP_FIELDS = {
-            "question_id", "question_title", "difficulty", "platform", "model_name",
-            "question", "public_test_cases", "private_test_cases", "metadata",
-            "relation", "followup_instruction_prefix", "followup_instruction_suffix",
-            "followup_question", "followup_response", "followup_response_samples",
-            "followup_error", "followup_prompt_tokens", "followup_completion_tokens",
-            "followup_total_tokens", "followup_thinking_tokens", "followup_token_efficiency",
-            "followup_llm_call_time",
-        }
         folder = mr_folder_name(relation_name, relation_id)
         out_dir = Path(results_dir) / safe_name(model_name) / folder
         out_dir.mkdir(parents=True, exist_ok=True)
         out_path = out_dir / "followup.json"
 
         filtered = [
-            {k: v for k, v in entry.items() if k in KEEP_FIELDS}
+            {k: v for k, v in entry.items() if k in _FOLLOWUP_KEEP_FIELDS}
             for entry in results
             if entry.get("followup_response")
         ]
@@ -2358,43 +2524,7 @@ File: evaluation/results_writer.py (14743 bytes)
 
         # ── Base results JSON ────────────────────────────────────────────────────
         base_results_path = base_content_path.parent / "base.results.json"
-        base_rows = []
-        for row in metric_rows:
-            src_var = row.get("source_variability") or {}
-            base_rows.append({
-                "question_id": row["id"],
-                "question_title": row.get("question_title"),
-                "difficulty": row.get("difficulty"),
-                "platform": row.get("platform"),
-
-                # Test pass metrics
-                "extractable_code": row.get("source_extractable"),
-                "passes_tests": row.get("source_passes_tests"),
-                "passed": row.get("source_passed"),          # legacy alias
-                "tests_passed": row.get("tests_passed"),
-                "tests_failed": row.get("tests_failed"),
-                "tests_total": row.get("tests_total"),
-                "test_run_time": row.get("source_test_run_time"),
-
-                # Static code metrics
-                "ncloc": row.get("source_ncloc"),
-                "cyclomatic_complexity": row.get("source_cc"),
-
-                # Variability
-                "mean_distance": src_var.get("mean_distance"),
-                "std_distance": src_var.get("std_distance"),
-                "n_pairs": src_var.get("n_pairs"),
-
-                # Token metrics
-                "prompt_tokens": row.get("source_prompt_tokens"),
-                "completion_tokens": row.get("source_completion_tokens"),
-                "total_tokens": row.get("source_total_tokens"),
-                "thinking_tokens": row.get("source_thinking_tokens"),
-                "token_efficiency": row.get("source_token_efficiency"),
-
-                # Timing
-                "llm_call_time": row.get("source_llm_call_time"),
-            })
+        base_rows = [serialize_metric_side(row, "source") for row in metric_rows]
         write_results_json(base_rows, base_results_path, merge=True)
 
         # ── Followup results JSON ────────────────────────────────────────────────
@@ -2404,50 +2534,11 @@ File: evaluation/results_writer.py (14743 bytes)
             followup_results_path = (
                 Path(results_dir) / safe_name(model_name) / folder / "followup.results.json"
             )
-            followup_rows = []
-            for row in metric_rows:
-                if row.get("followup_ncloc") is None:
-                    continue
-                flw_var = row.get("followup_variability") or {}
-                followup_rows.append({
-                    "question_id": row["id"],
-                    "question_title": row.get("question_title"),
-                    "difficulty": row.get("difficulty"),
-                    "platform": row.get("platform"),
-
-                    # Test pass metrics
-                    "extractable_code": row.get("followup_extractable"),
-                    "passes_tests": row.get("followup_passes_tests"),
-                    "passes_same_tests": row.get("passes_same_tests"),
-                    "passed": row.get("followup_passed"),    # legacy alias
-                    "tests_passed": row.get("followup_tests_passed"),
-                    "tests_failed": row.get("followup_tests_failed"),
-                    "tests_total": row.get("followup_tests_total"),
-                    "test_run_time": row.get("followup_test_run_time"),
-
-                    # Static code metrics
-                    "ncloc": row.get("followup_ncloc"),
-                    "cyclomatic_complexity": row.get("followup_cc"),
-
-                    # Variability
-                    "mean_distance": flw_var.get("mean_distance"),
-                    "std_distance": flw_var.get("std_distance"),
-                    "n_pairs": flw_var.get("n_pairs"),
-
-                    # MR
-                    "mr_holds": row.get("mr_holds"),
-                    "code_sim": row.get("code_sim"),
-
-                    # Token metrics
-                    "prompt_tokens": row.get("followup_prompt_tokens"),
-                    "completion_tokens": row.get("followup_completion_tokens"),
-                    "total_tokens": row.get("followup_total_tokens"),
-                    "thinking_tokens": row.get("followup_thinking_tokens"),
-                    "token_efficiency": row.get("followup_token_efficiency"),
-
-                    # Timing
-                    "llm_call_time": row.get("followup_llm_call_time"),
-                })
+            followup_rows = [
+                serialize_metric_side(row, "followup")
+                for row in metric_rows
+                if row.get("followup_ncloc") is not None
+            ]
             write_results_json(followup_rows, followup_results_path)
 
         # ── HTML report ──────────────────────────────────────────────────────────
@@ -2550,30 +2641,17 @@ File: evaluation/results_writer.py (14743 bytes)
         print(f"  Violations log -> {out_path} ({len(violations)} violations)")
         return out_path
 
-
-    def write_consolidated_outputs(model_name: str, results_dir: str) -> None:
-        """
-        Write the post-test consolidated outputs for a model:
-          - merged HTML report of base + all per-MR runs
-          - violations log
-        Safe to call repeatedly; reads whatever results exist on disk.
-        """
-        from evaluation.report import generate_merged_html_report
-
-        generate_merged_html_report(model_name, results_dir)
-        write_violations_log(model_name, results_dir)
-
 ---
 
 ## evaluation/runner.py
 
 ```text
-File: evaluation/runner.py (19416 bytes)
+File: evaluation/runner.py (19630 bytes)
 ```
 
     import json
     import time
-    from dataclasses import dataclass, asdict, field
+    from dataclasses import asdict, dataclass, field, replace
     from typing import List
     from pathlib import Path
 
@@ -2659,6 +2737,38 @@ File: evaluation/runner.py (19416 bytes)
                 totals["reported"] = True
 
 
+    def _token_efficiency(usage: dict | None) -> float | None:
+        _, completion_tokens, _, thinking_tokens = _extract_usage(usage)
+        if thinking_tokens and completion_tokens:
+            return round(completion_tokens / thinking_tokens, 6)
+        return None
+
+
+    @dataclass
+    class GeneratedResponses:
+        responses: list[str] = field(default_factory=list)
+        usages: list[dict | None] = field(default_factory=list)
+        call_times: list[float | None] = field(default_factory=list)
+        finish_reasons: list[str | None] = field(default_factory=list)
+        error: str = ""
+
+        @property
+        def primary_response(self) -> str:
+            return self.responses[0] if self.responses else ""
+
+        @property
+        def primary_usage(self) -> dict | None:
+            return self.usages[0] if self.usages else None
+
+        @property
+        def primary_call_time(self) -> float | None:
+            return self.call_times[0] if self.call_times else None
+
+        @property
+        def primary_finish_reason(self) -> str | None:
+            return self.finish_reasons[0] if self.finish_reasons else None
+
+
     @dataclass
     class LLMResult:
         question_id: str
@@ -2685,6 +2795,7 @@ File: evaluation/runner.py (19416 bytes)
 
         # Timing — source
         llm_call_time: float | None = None          # wall-clock seconds for generate()
+        finish_reason: str | None = None
 
         # MT fields — only populated when --mr is used
         relation: str = ""
@@ -2704,6 +2815,7 @@ File: evaluation/runner.py (19416 bytes)
 
         # Timing — followup
         followup_llm_call_time: float | None = None
+        followup_finish_reason: str | None = None
 
 
     class PipelineRunner:
@@ -2727,6 +2839,36 @@ File: evaluation/runner.py (19416 bytes)
             self.prompt_repeats = max(1, prompt_repeats)
             self.resume = resume
             Path(RESULTS_DIR).mkdir(exist_ok=True)
+
+        def _generate_responses(
+            self,
+            model: BaseLLM,
+            prompt: str,
+            token_totals: dict,
+        ) -> GeneratedResponses:
+            generated = GeneratedResponses()
+            for repeat_index in range(self.prompt_repeats):
+                try:
+                    response = model.generate(prompt)
+                    usage = model.last_usage
+                    call_time = model.last_call_time
+                    finish_reason = model.last_finish_reason
+                except Exception as exc:
+                    response = ""
+                    usage = None
+                    call_time = None
+                    finish_reason = None
+                    if repeat_index == 0:
+                        generated.error = str(exc)
+
+                generated.responses.append(response)
+                generated.usages.append(usage)
+                generated.call_times.append(call_time)
+                generated.finish_reasons.append(finish_reason)
+                _accumulate_usage(token_totals, usage)
+                if repeat_index < self.prompt_repeats - 1:
+                    time.sleep(self.delay)
+            return generated
 
         def run(self):
             for model in self.models:
@@ -2782,37 +2924,17 @@ File: evaluation/runner.py (19416 bytes)
                     print(f"  [{i+1}/{len(self.dataset)}] {sample['question_id']} ({sample['difficulty']})", end=" ... ")
 
                     # ── Source response ──────────────────────────────────────────
-                    response = ""
-                    response_samples = []
-                    usage_samples: list[dict | None] = []
-                    call_time_samples: list[float | None] = []
-                    error = ""
-                    usage = None
-                    llm_call_time: float | None = None
+                    source = GeneratedResponses()
 
                     if not (self.relation and self.mr_only):
-                        for repeat_index in range(self.prompt_repeats):
-                            try:
-                                current_response = model.generate(prompt)
-                                current_usage = model.last_usage
-                                current_call_time = model.last_call_time
-                            except Exception as e:
-                                current_response = ""
-                                current_usage = None
-                                current_call_time = None
-                                if repeat_index == 0:
-                                    error = str(e)
+                        source = self._generate_responses(model, prompt, token_totals)
 
-                            response_samples.append(current_response)
-                            usage_samples.append(current_usage)
-                            call_time_samples.append(current_call_time)
-                            if repeat_index == 0:
-                                response = current_response
-                                usage = current_usage
-                                llm_call_time = current_call_time
-                            _accumulate_usage(token_totals, current_usage)
-                            if repeat_index < self.prompt_repeats - 1:
-                                time.sleep(self.delay)
+                    response = source.primary_response
+                    response_samples = source.responses
+                    error = source.error
+                    usage = source.primary_usage
+                    llm_call_time = source.primary_call_time
+                    finish_reason = source.primary_finish_reason
 
                     if self.relation and self.mr_only and base_results:
                         base_entry = base_results.get(sample["question_id"])
@@ -2821,11 +2943,10 @@ File: evaluation/runner.py (19416 bytes)
                             response_samples = base_entry.get("response_samples") or ([response] if response else [])
                             error = base_entry.get("error", "")
                             llm_call_time = base_entry.get("llm_call_time")
+                            finish_reason = base_entry.get("finish_reason")
 
                     prompt_tokens, completion_tokens, total_tokens, thinking_tokens = _extract_usage(usage)
-                    token_efficiency: float | None = None
-                    if thinking_tokens and completion_tokens:
-                        token_efficiency = round(completion_tokens / thinking_tokens, 6)
+                    token_efficiency = _token_efficiency(usage)
 
                     # ── Followup response ────────────────────────────────────────
                     followup_question = ""
@@ -2840,6 +2961,7 @@ File: evaluation/runner.py (19416 bytes)
                     followup_thinking_tokens = None
                     followup_token_efficiency = None
                     followup_llm_call_time: float | None = None
+                    followup_finish_reason: str | None = None
 
                     if self.relation:
                         target = getattr(self.relation, "target", "PD")
@@ -2856,35 +2978,19 @@ File: evaluation/runner.py (19416 bytes)
                             )
                             followup_prompt = build_prompt(question, followup_instruction_prefix, followup_instruction_suffix)
 
-                        for repeat_index in range(self.prompt_repeats):
-                            try:
-                                current_followup_response = model.generate(followup_prompt)
-                                followup_usage = model.last_usage
-                                current_followup_call_time = model.last_call_time
-                            except Exception as e:
-                                current_followup_response = ""
-                                followup_usage = None
-                                current_followup_call_time = None
-                                if repeat_index == 0:
-                                    followup_error = str(e)
-
-                            followup_response_samples.append(current_followup_response)
-                            if repeat_index == 0:
-                                followup_response = current_followup_response
-                                (
-                                    followup_prompt_tokens,
-                                    followup_completion_tokens,
-                                    followup_total_tokens,
-                                    followup_thinking_tokens,
-                                ) = _extract_usage(followup_usage)
-                                followup_llm_call_time = current_followup_call_time
-                                if followup_thinking_tokens and followup_completion_tokens:
-                                    followup_token_efficiency = round(
-                                        followup_completion_tokens / followup_thinking_tokens, 6
-                                    )
-                            _accumulate_usage(token_totals, followup_usage)
-                            if repeat_index < self.prompt_repeats - 1:
-                                time.sleep(self.delay)
+                        followup = self._generate_responses(model, followup_prompt, token_totals)
+                        followup_response = followup.primary_response
+                        followup_response_samples = followup.responses
+                        followup_error = followup.error
+                        (
+                            followup_prompt_tokens,
+                            followup_completion_tokens,
+                            followup_total_tokens,
+                            followup_thinking_tokens,
+                        ) = _extract_usage(followup.primary_usage)
+                        followup_token_efficiency = _token_efficiency(followup.primary_usage)
+                        followup_llm_call_time = followup.primary_call_time
+                        followup_finish_reason = followup.primary_finish_reason
 
                         if self.mr_only:
                             print(f"ok (mr-only + {self.relation.name} [{target}], repeats={self.prompt_repeats})")
@@ -2893,7 +2999,7 @@ File: evaluation/runner.py (19416 bytes)
                     else:
                         print(f"ok (repeats={self.prompt_repeats})" if self.prompt_repeats > 1 else "ok")
 
-                    result_entry = asdict(LLMResult(
+                    result = LLMResult(
                         question_id=sample["question_id"],
                         question_title=sample["question_title"],
                         difficulty=sample["difficulty"],
@@ -2914,6 +3020,7 @@ File: evaluation/runner.py (19416 bytes)
                         thinking_tokens=thinking_tokens,
                         token_efficiency=token_efficiency,
                         llm_call_time=llm_call_time,
+                        finish_reason=finish_reason,
                         relation=self.relation.name if self.relation else "",
                         followup_instruction_prefix=followup_instruction_prefix,
                         followup_instruction_suffix=followup_instruction_suffix,
@@ -2927,7 +3034,9 @@ File: evaluation/runner.py (19416 bytes)
                         followup_thinking_tokens=followup_thinking_tokens,
                         followup_token_efficiency=followup_token_efficiency,
                         followup_llm_call_time=followup_llm_call_time,
-                    ))
+                        followup_finish_reason=followup_finish_reason,
+                    )
+                    result_entry = asdict(result)
                     results = [entry for entry in results if entry.get("question_id") != sample["question_id"]]
                     results.append(result_entry)
                     completed_ids.add(sample["question_id"])
@@ -2936,32 +3045,22 @@ File: evaluation/runner.py (19416 bytes)
                     # ── Per-repeat result files (base run only, repeats > 1) ───────
                     if write_repeat_files:
                         for idx, rep_response in enumerate(response_samples):
-                            rep_usage = usage_samples[idx] if idx < len(usage_samples) else None
+                            rep_usage = source.usages[idx] if idx < len(source.usages) else None
                             rep_ptok, rep_ctok, rep_ttok, rep_thtok = _extract_usage(rep_usage)
-                            rep_eff = None
-                            if rep_thtok and rep_ctok:
-                                rep_eff = round(rep_ctok / rep_thtok, 6)
-
-                            rep_entry = asdict(LLMResult(
-                                question_id=sample["question_id"],
-                                question_title=sample["question_title"],
-                                difficulty=sample["difficulty"],
-                                platform=sample["platform"],
-                                model_name=model.model_name,
-                                instruction_prefix=INSTRUCTION_PREFIX,
-                                instruction_suffix=INSTRUCTION_SUFFIX,
-                                question=question,
+                            rep_entry = asdict(replace(
+                                result,
                                 response=rep_response,
-                                public_test_cases=json.dumps(sample.get("public_test_cases", [])),
-                                private_test_cases=sample.get("private_test_cases", ""),
-                                metadata=json.dumps(sample.get("metadata", {})),
+                                response_samples=[],
                                 error=error if idx == 0 else "",
                                 prompt_tokens=rep_ptok,
                                 completion_tokens=rep_ctok,
                                 total_tokens=rep_ttok,
                                 thinking_tokens=rep_thtok,
-                                token_efficiency=rep_eff,
-                                llm_call_time=call_time_samples[idx] if idx < len(call_time_samples) else None,
+                                token_efficiency=_token_efficiency(rep_usage),
+                                llm_call_time=source.call_times[idx] if idx < len(source.call_times) else None,
+                                finish_reason=(
+                                    source.finish_reasons[idx] if idx < len(source.finish_reasons) else None
+                                ),
                             ))
                             repeat_results[idx] = [
                                 e for e in repeat_results[idx] if e.get("question_id") != sample["question_id"]
@@ -2997,13 +3096,12 @@ File: evaluation/runner.py (19416 bytes)
             if not quiet:
                 print(f"\n  Saved {len(results)} results -> {out_path}")
 
-
 ---
 
 ## explore_dataset.py
 
 ```text
-File: explore_dataset.py (1365 bytes)
+File: explore_dataset.py (2012 bytes)
 ```
 
     """
@@ -3011,62 +3109,77 @@ File: explore_dataset.py (1365 bytes)
     before kicking off the full pipeline.
 
     Usage:
-        python explore_dataset.py
+        python explore_dataset.py [--write-preview]
     """
 
-    from datasets import load_dataset
-    from config.settings import LCB_DATASET, LCB_VERSION
+    import argparse
     import json
     from datetime import datetime
     from pathlib import Path
 
+    from datasets import load_dataset
+    from config.settings import LCB_DATASET, LCB_VERSION, RESULTS_DIR
 
-    ds = load_dataset(
-        LCB_DATASET,
-        name=LCB_VERSION,
-        split="test",
-    )
 
-    print(f"\nTotal samples: {len(ds)}")
-    print(f"Columns: {ds.column_names}\n")
+    def parse_args():
+        parser = argparse.ArgumentParser(description="Inspect the LiveCodeBench dataset")
+        parser.add_argument(
+            "--write-preview",
+            action="store_true",
+            help="Write the first ten records to RESULTS_DIR/dataset_preview.json",
+        )
+        return parser.parse_args()
 
-    # Show one sample in detail
-    sample = ds[20]
-    for key, value in sample.items():
-        if isinstance(value, (list, dict)):
-            preview = json.dumps(value, indent=2)[:300] + "..."
-        else:
-            preview = str(value)[:300]
-        print(f"--- {key} ---")
-        print(preview)
-        print()
 
-    # Write first 10 samples to results/dataset_preview.json
-    Path("results").mkdir(exist_ok=True)
-    out_path = Path("results") / "dataset_preview.json"
-     
-    records = []
-    for sample in ds.select(range(10)):
-        record = {}
+    def write_preview(dataset) -> Path:
+        out_dir = Path(RESULTS_DIR)
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / "dataset_preview.json"
+        records = []
+        for sample in dataset.select(range(min(10, len(dataset)))):
+            records.append({
+                key: value.isoformat() if isinstance(value, datetime) else value
+                for key, value in sample.items()
+            })
+
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(records, f, indent=2, ensure_ascii=False)
+        return out_path
+
+
+    def main() -> None:
+        args = parse_args()
+        dataset = load_dataset(LCB_DATASET, name=LCB_VERSION, split="test")
+
+        print(f"\nTotal samples: {len(dataset)}")
+        print(f"Columns: {dataset.column_names}\n")
+        if not len(dataset):
+            return
+
+        sample = dataset[min(20, len(dataset) - 1)]
         for key, value in sample.items():
-            if isinstance(value, datetime):
-                record[key] = value.isoformat()
+            if isinstance(value, (list, dict)):
+                preview = json.dumps(value, indent=2)[:300] + "..."
             else:
-                record[key] = value
-        records.append(record)
-     
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(records, f, indent=2, ensure_ascii=False)
-     
-    print(f"Saved {len(records)} samples -> {out_path}")
+                preview = str(value)[:300]
+            print(f"--- {key} ---")
+            print(preview)
+            print()
 
+        if args.write_preview:
+            out_path = write_preview(dataset)
+            print(f"Saved {min(10, len(dataset))} samples -> {out_path}")
+
+
+    if __name__ == "__main__":
+        main()
 
 ---
 
 ## INSTRUCTIONS.md
 
 ```text
-File: INSTRUCTIONS.md (1439 bytes)
+File: INSTRUCTIONS.md (1489 bytes)
 ```
 
     ## Quick Start
@@ -3114,7 +3227,7 @@ File: INSTRUCTIONS.md (1439 bytes)
         "models": ["openai"],
         "n": 5,
         "after": "2025-04-01",
-        "mr": 1,
+        "mr": [1, 4, 7],  # Or "all" to run every registered MR.
         "mr_only": False,
         "run_tests": True,
         "repeats": 3,
@@ -3135,16 +3248,14 @@ File: INSTRUCTIONS.md (1439 bytes)
 ## llms/__init__.py
 
 ```text
-File: llms/__init__.py (282 bytes)
+File: llms/__init__.py (171 bytes)
 ```
 
     from .claude_model import ClaudeModel
     from .openai_model import OpenAIModel
     from .gemini_model import GeminiModel
-    from .deepseek_model import DeepSeekModel
-    from .grok_model import GrokModel
 
-    __all__ = ["ClaudeModel", "OpenAIModel", "GeminiModel", "DeepSeekModel", "GrokModel"]
+    __all__ = ["ClaudeModel", "OpenAIModel", "GeminiModel"]
 
 ---
 
@@ -3170,7 +3281,7 @@ File: llms/base.py (2699 bytes)
         def last_usage(self) -> dict | None:
             """Return the most recent token usage, if available."""
             return getattr(self, "_last_usage", None)
-        
+
         @property
         def last_call_time(self) -> float | None:
             """Return wall-clock seconds for the most recent generate() call."""
@@ -3236,12 +3347,12 @@ File: llms/base.py (2699 bytes)
 ## llms/claude_model.py
 
 ```text
-File: llms/claude_model.py (1335 bytes)
+File: llms/claude_model.py (1474 bytes)
 ```
 
     import anthropic
     from .base import BaseLLM
-    from config.settings import ANTHROPIC_API_KEY, CLAUDE_MODEL, MAX_TOKENS, TEMPERATURE
+    from config.settings import ANTHROPIC_API_KEY, CLAUDE_MODEL, MAX_TOKENS
 
 
     class ClaudeModel(BaseLLM):
@@ -3254,11 +3365,14 @@ File: llms/claude_model.py (1335 bytes)
             return self._model_name
 
         def generate(self, prompt: str) -> str:
-            message = self.client.messages.create(
-                model=self._model_name,
-                max_tokens=MAX_TOKENS,
-                messages=[{"role": "user", "content": prompt}],
+            message = self._record_timed_call(
+                lambda: self.client.messages.create(
+                    model=self._model_name,
+                    max_tokens=MAX_TOKENS,
+                    messages=[{"role": "user", "content": prompt}],
+                )
             )
+            self._set_last_finish_reason(getattr(message, "stop_reason", None))
             usage = getattr(message, "usage", None)
             if usage is not None:
                 prompt_tokens = getattr(usage, "input_tokens", None)
@@ -3277,49 +3391,10 @@ File: llms/claude_model.py (1335 bytes)
 
 ---
 
-## llms/deepseek_model.py
-
-```text
-File: llms/deepseek_model.py (1122 bytes)
-```
-
-    from openai import OpenAI
-    from .base import BaseLLM
-    from config.settings import DEEPSEEK_API_KEY, DEEPSEEK_MODEL, MAX_TOKENS, TEMPERATURE
-
-    #NOTE: This ended up not actually using the deepseek LLM, its just a tester with free online api keys (google gemma in this case)
-    class DeepSeekModel(BaseLLM):
-        def __init__(self, model: str = DEEPSEEK_MODEL):
-            self.client = OpenAI(
-                base_url="https://integrate.api.nvidia.com/v1",
-                api_key=DEEPSEEK_API_KEY,
-            )
-            self._model_name = model
-
-        @property
-        def model_name(self) -> str:
-            return self._model_name
-
-        def generate(self, prompt: str) -> str:
-            completion = self._record_timed_call(
-                lambda: self.client.chat.completions.create(
-                    model=self._model_name,
-                    messages=[{"role": "user", "content": prompt}],
-                    temperature=TEMPERATURE,
-                    top_p=0.7,
-                    max_tokens=MAX_TOKENS,
-                )
-            )
-            self._set_openai_compatible_usage(completion)
-            return completion.choices[0].message.content
-
-
----
-
 ## llms/gemini_model.py
 
 ```text
-File: llms/gemini_model.py (1369 bytes)
+File: llms/gemini_model.py (1834 bytes)
 ```
 
     from google import genai
@@ -3331,20 +3406,27 @@ File: llms/gemini_model.py (1369 bytes)
         def __init__(self, model: str = GEMINI_MODEL):
             self.client = genai.Client(api_key=GOOGLE_API_KEY)
             self._model_name = model
-     
+
         @property
         def model_name(self) -> str:
             return self._model_name
-     
+
         def generate(self, prompt: str) -> str:
-            response = self.client.models.generate_content(
-                model=self._model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    max_output_tokens=MAX_TOKENS,
-                    temperature=TEMPERATURE,
-                ),
+            response = self._record_timed_call(
+                lambda: self.client.models.generate_content(
+                    model=self._model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        max_output_tokens=MAX_TOKENS,
+                        temperature=TEMPERATURE,
+                    ),
+                )
             )
+            candidates = getattr(response, "candidates", None) or []
+            finish_reason = getattr(candidates[0], "finish_reason", None) if candidates else None
+            if finish_reason is not None and not isinstance(finish_reason, str):
+                finish_reason = getattr(finish_reason, "name", None) or str(finish_reason)
+            self._set_last_finish_reason(finish_reason)
             usage = getattr(response, "usage_metadata", None)
             if usage is not None:
                 prompt_tokens = getattr(usage, "prompt_token_count", None)
@@ -3359,58 +3441,21 @@ File: llms/gemini_model.py (1369 bytes)
                 self._set_last_usage(None)
             return response.text
 
-
----
-
-## llms/grok_model.py
-
-```text
-File: llms/grok_model.py (934 bytes)
-```
-
-    from openai import OpenAI
-    from .base import BaseLLM
-    from config.settings import GROK_API_KEY, GROK_MODEL, MAX_TOKENS, TEMPERATURE
-
-
-    class GrokModel(BaseLLM):
-        def __init__(self, model: str = GROK_MODEL):
-            self.client = OpenAI(
-                api_key=GROK_API_KEY,
-                base_url="https://api.groq.com/openai/v1",
-            )
-            self._model_name = model
-
-        @property
-        def model_name(self) -> str:
-            return self._model_name
-
-        def generate(self, prompt: str) -> str:
-            response = self._record_timed_call(
-                lambda: self.client.chat.completions.create(
-                    model=self._model_name,
-                    messages=[{"role": "user", "content": prompt}],
-                    max_tokens=MAX_TOKENS,
-                    temperature=TEMPERATURE,
-                )
-            )
-            self._set_openai_compatible_usage(response)
-            return response.choices[0].message.content
-
-
 ---
 
 ## llms/mr_helper.py
 
 ```text
-File: llms/mr_helper.py (2838 bytes)
+File: llms/mr_helper.py (2928 bytes)
 ```
 
     from openai import OpenAI
-    from config.settings import OPENAI_API_KEY, MR_HELPER_MODEL, MR_HELPER_TOKENS, RESULTS_DIR
+    from config.settings import OPENAI_API_KEY, MR_HELPER_MODEL, RESULTS_DIR
     import json
     import time
     from pathlib import Path
+
+    from cost_tracker import update_costs
 
     HELPER_LOG_PATH = Path(RESULTS_DIR) / "helper_call_log.jsonl"
 
@@ -3440,7 +3485,7 @@ File: llms/mr_helper.py (2838 bytes)
         @property
         def last_usage(self) -> dict | None:
             return self._last_usage
-        
+
         @property
         def last_finish_reason(self):
             return getattr(self, "_last_finish_reason", None)
@@ -3476,7 +3521,8 @@ File: llms/mr_helper.py (2838 bytes)
             else:
                 self._last_usage = None
 
-            result = choice.message.content.strip()
+            update_costs(self.model_name, self._last_usage)
+            result = (choice.message.content or "").strip()
             _log_helper_call(system, user, result, self._last_finish_reason, self._last_usage)
             return result
 
@@ -3499,12 +3545,12 @@ File: llms/mr_helper.py (2838 bytes)
 ## llms/openai_model.py
 
 ```text
-File: llms/openai_model.py (1183 bytes)
+File: llms/openai_model.py (1068 bytes)
 ```
 
     from openai import OpenAI
     from .base import BaseLLM
-    from config.settings import OPENAI_API_KEY, OPENAI_MODEL, MAX_TOKENS, TEMPERATURE
+    from config.settings import OPENAI_API_KEY, OPENAI_MODEL, MAX_TOKENS
 
 
     class OpenAIModel(BaseLLM):
@@ -3521,8 +3567,6 @@ File: llms/openai_model.py (1183 bytes)
                 "model": self._model_name,
                 "messages": [{"role": "user", "content": prompt}],
             }
-            # if "gpt-5-nano" not in self._model_name:
-                # request["temperature"] = TEMPERATURE
             if self._model_name.startswith("gpt-5"):
                 request["max_completion_tokens"] = MAX_TOKENS
                 request["reasoning_effort"] = "medium"
@@ -3539,7 +3583,7 @@ File: llms/openai_model.py (1183 bytes)
 ## main.py
 
 ```text
-File: main.py (4283 bytes)
+File: main.py (5559 bytes)
 ```
 
     import argparse
@@ -3549,15 +3593,13 @@ File: main.py (4283 bytes)
     from data.loader import load_livecode_bench
     from evaluation.paths import build_results_path
     from evaluation.runner import PipelineRunner
-    from llms import ClaudeModel, OpenAIModel, GeminiModel, DeepSeekModel, GrokModel
+    from llms import ClaudeModel, GeminiModel, OpenAIModel
     from metamorphic.relations_list import RELATIONS
 
     MODEL_CHOICES = {
         "claude": ClaudeModel,
         "openai": OpenAIModel,
         "gemini": GeminiModel,
-        "deepseek": DeepSeekModel,
-        "grok": GrokModel,
     }
 
     def get_relation(mr_id: int):
@@ -3566,6 +3608,30 @@ File: main.py (4283 bytes)
             raise ValueError(f"Unknown MR: {mr_id}. Available: {available}")
         entry = RELATIONS[mr_id]
         return entry["class"]()
+
+
+    def parse_mr(value: str) -> int | str:
+        if value.lower() == "all":
+            return "all"
+        try:
+            return int(value)
+        except ValueError as exc:
+            raise argparse.ArgumentTypeError("MR must be an integer ID or 'all'") from exc
+
+
+    def resolve_relation_ids(values: list[int | str] | None) -> list[int]:
+        if not values:
+            return []
+        if "all" in values:
+            if len(values) != 1:
+                raise ValueError("'all' cannot be combined with individual MR IDs")
+            return sorted(RELATIONS)
+
+        relation_ids = list(dict.fromkeys(values))
+        unknown = [mr_id for mr_id in relation_ids if mr_id not in RELATIONS]
+        if unknown:
+            raise ValueError(f"Unknown MR(s): {unknown}. Available: {sorted(RELATIONS)}")
+        return relation_ids
 
     def _run_tests(model_name: str, relation_name: str | None, relation_id: int | None, followup_only: bool) -> int:
         results_path = build_results_path(model_name, relation_name, relation_id)
@@ -3610,9 +3676,11 @@ File: main.py (4283 bytes)
         )
         parser.add_argument(
             "--mr",
-            type=int,
+            nargs="+",
+            type=parse_mr,
             default=None,
-            help="Apply a metamorphic relation alongside the normal run. e.g. --mr 1",
+            metavar="ID|all",
+            help="Apply one or more metamorphic relations. e.g. --mr 1 4 7 or --mr all",
         )
         parser.add_argument(
             "--mr-only",
@@ -3640,40 +3708,51 @@ File: main.py (4283 bytes)
     def main() -> int:
         args = parse_args()
 
-        dataset = load_livecode_bench(n_samples=args.n, after=args.after, difficulty=args.difficulty)
-        models = [MODEL_CHOICES[name]() for name in args.models]
-        relation = get_relation(args.mr) if args.mr is not None else None
-        if args.mr_only and args.mr is None:
+        try:
+            relation_ids = resolve_relation_ids(args.mr)
+        except ValueError as exc:
+            print(exc)
+            return 2
+        if args.mr_only and not relation_ids:
             print("--mr-only requires --mr to be set")
             return 2
         if args.repeats < 1:
             print("--repeats must be at least 1")
             return 2
 
-        print(f"Running models: {[m.model_name for m in models]}, on metamorphic relation: {args.mr is not None}")
+        dataset = load_livecode_bench(n_samples=args.n, after=args.after, difficulty=args.difficulty)
+        models = [MODEL_CHOICES[name]() for name in args.models]
+        runs = relation_ids or [None]
+        print(f"Running models: {[model.model_name for model in models]}, MRs: {relation_ids or ['base']}")
 
-        runner = PipelineRunner(
-            models=models,
-            dataset=dataset,
-            relation=relation,
-            relation_id=args.mr,
-            mr_only=args.mr_only,
-            prompt_repeats=args.repeats,
-            resume=args.resume,
-        )
-        runner.run()
+        for relation_id in runs:
+            relation = get_relation(relation_id) if relation_id is not None else None
+            runner = PipelineRunner(
+                models=models,
+                dataset=dataset,
+                relation=relation,
+                relation_id=relation_id,
+                mr_only=args.mr_only,
+                prompt_repeats=args.repeats,
+                resume=args.resume,
+            )
+            runner.run()
 
-        if args.run_tests:
-            for model in models:
-                relation_name = relation.name if relation else None
-                exit_code = _run_tests(model.model_name, relation_name, args.mr, args.mr_only)
-                if exit_code != 0:
-                    return exit_code
+            if args.run_tests:
+                for model in models:
+                    relation_name = relation.name if relation else None
+                    exit_code = _run_tests(
+                        model.model_name,
+                        relation_name,
+                        relation_id,
+                        args.mr_only,
+                    )
+                    if exit_code != 0:
+                        return exit_code
         return 0
 
     if __name__ == "__main__":
         raise SystemExit(main())
-
 
 ---
 
@@ -3682,6 +3761,7 @@ File: main.py (4283 bytes)
 ```text
 File: metamorphic/__init__.py (0 bytes)
 ```
+
 
 
 
@@ -3695,29 +3775,27 @@ File: metamorphic/relations/__init__.py (0 bytes)
 
 
 
+
 ---
 
 ## metamorphic/relations/base_mr.py
 
 ```text
-File: metamorphic/relations/base_mr.py (241 bytes)
+File: metamorphic/relations/base_mr.py (115 bytes)
 ```
 
     class BaseMR:
         target = "PD"
-     
+
         def transform(self, text: str) -> str:
             raise NotImplementedError
-     
-        def verify(self, source_passed: bool, followup_passed: bool) -> bool:
-            return source_passed == followup_passed
 
 ---
 
 ## metamorphic/relations/mrs.py
 
 ```text
-File: metamorphic/relations/mrs.py (8242 bytes)
+File: metamorphic/relations/mrs.py (8322 bytes)
 ```
 
     import re, random
@@ -4024,7 +4102,7 @@ File: metamorphic/relations/mrs.py (8242 bytes)
 ## metamorphic/relations/phrases.py
 
 ```text
-File: metamorphic/relations/phrases.py (13150 bytes)
+File: metamorphic/relations/phrases.py (12649 bytes)
 ```
 
     import random
@@ -4147,15 +4225,6 @@ File: metamorphic/relations/phrases.py (13150 bytes)
         "Output only the rewritten problem text with no preamble."
     )
 
-    ANTONYM_PROMPT_EQUIV = (
-        "Rewrite the programming problem below by substituting key terms with their antonyms "
-        "ensuring that the substitutions make sense in context"
-        "and adjusting the surrounding logic so the problem remains semantically equivalent "
-        "(e.g. 'ascending order' → 'not in descending order'). "
-        "All numeric constraints, input/output formats, and the required answer must stay identical. "
-        "Output only the rewritten problem text with no preamble."
-    )
-
     SYNONYM_PROMPT = (
         "Rewrite the programming problem below by substituting key domain terms and verbs "
         "ensuring that the substitutions make sense in context"
@@ -4245,7 +4314,7 @@ File: metamorphic/relations/phrases.py (13150 bytes)
 ## metamorphic/relations_list.py
 
 ```text
-File: metamorphic/relations_list.py (3871 bytes)
+File: metamorphic/relations_list.py (3875 bytes)
 ```
 
     from metamorphic.relations.mrs import (
@@ -4274,7 +4343,7 @@ File: metamorphic/relations_list.py (3871 bytes)
     RELATIONS = {
         0:  {"class": MR0,  "name": "do_nothing",                     "target": "PD", "description": "Control relation that returns the original prompt and output unchanged."},
         1:  {"class": MR1,  "name": "irrelevant_context",             "target": "PD", "description": "Insert irrelevant sentence into prompt"},
-        2:  {"class": MR2,  "name": "redundant_context",              "target": "I",  "description": "Insert a related sentence which has no effect on the solution."},
+        2:  {"class": MR2,  "name": "constraint_redundant_spec",        "target": "I",  "description": "Insert a related sentence which has no effect on the solution."},
         3:  {"class": MR3,  "name": "format_structural_equivalence",  "target": "PD", "description": "Convert the prompt into a structured bulleted list."},
         4:  {"class": MR4,  "name": "persona_role_prompting",         "target": "I",  "description": "Prepend a persona to the prompt."},
         5:  {"class": MR5,  "name": "polarity_negative_formulation",  "target": "PD", "description": "LLM-assisted rewrite of the return/output requirement into an equivalent negative form."},
@@ -4299,7 +4368,7 @@ File: metamorphic/relations_list.py (3871 bytes)
 ## README.md
 
 ```text
-File: README.md (13199 bytes)
+File: README.md (13965 bytes)
 ```
 
     # LLM Metamorphic Testing Pipeline
@@ -4325,7 +4394,9 @@ File: README.md (13199 bytes)
     python explore_dataset.py
     ```
 
-    The LiveCodeBench dataset is downloaded and cached on first use.
+    The LiveCodeBench dataset is downloaded and cached on first use. Add
+    `--write-preview` only when you want to save the first ten records under the
+    configured results directory.
 
     ### 3. Run a small experiment
 
@@ -4351,7 +4422,7 @@ File: README.md (13199 bytes)
         "models": ["openai"],
         "n": 5,
         "after": "2025-04-01",
-        "mr": 1,
+        "mr": [1, 4, 7],  # Or "all" to run every registered MR.
         "mr_only": False,
         "run_tests": True,
         "repeats": 3,
@@ -4375,10 +4446,11 @@ File: README.md (13199 bytes)
 
     | Option | Description |
     |---|---|
-    | `--models MODEL ...` | Models to run: `claude`, `openai`, `gemini`, `deepseek`, or `grok`. Defaults to all. |
+    | `--models MODEL ...` | Models to run: `claude`, `openai`, or `gemini`. Defaults to all. |
     | `--n N` | Limit the number of dataset problems. |
     | `--after YYYY-MM-DD` | Include problems on or after the specified date. |
-    | `--mr ID` | Apply the metamorphic relation with the specified ID. |
+    | `--difficulty LEVEL ...` | Include only `easy`, `medium`, and/or `hard` problems. |
+    | `--mr ID ...` | Apply one or more relation IDs, or use `--mr all`. |
     | `--mr-only` | Reuse saved base responses and generate only MR follow-up responses. Requires `--mr`. |
     | `--repeats N` | Generate each applicable prompt N times. Defaults to `1`. |
     | `--resume` | Skip existing entries that already contain the required code blocks. |
@@ -4389,13 +4461,20 @@ File: README.md (13199 bytes)
     Run a base experiment:
 
     ```powershell
-    python main.py --models deepseek --n 5
+    python main.py --models openai --n 5
     ```
 
     Run an MR experiment:
 
     ```powershell
     python main.py --models openai --n 10 --mr 4
+    ```
+
+    Run several or all registered MRs:
+
+    ```powershell
+    python main.py --models openai --n 10 --mr 3 4 5
+    python main.py --models openai --n 10 --mr all
     ```
 
     Measure source and MR prompt variability:
@@ -4472,7 +4551,7 @@ File: README.md (13199 bytes)
     | `--out PATH` | Set the test log path. |
     | `--csv PATH` | Export the metrics table to CSV. |
     | `--followup-only` | Test the follow-up response as the primary response. |
-    | `--write-outputs` | Write split content/results files, generate the HTML report, and refresh the merged `all.html` + `violations.json`. |
+    | `--write-outputs` | Write split content/results files and generate the HTML report. |
 
     Examples:
 
@@ -4602,18 +4681,7 @@ File: README.md (13199 bytes)
     |-- all_mrs/
     |   |-- all_mrs.json
     |   `-- all_mrs.tests.log
-    |-- all.html              Merged HTML report of the base run + all MR runs
-    `-- violations.json       Log of every MR violation (mr_holds == False)
     ```
-
-    `all.html` and `violations.json` are consolidated automatically once testing
-    finishes — at the end of `main.py --run-tests` (per model) and after every
-    `runtests.py` run that uses `--write-outputs`. They are regenerated from
-    whatever results exist on disk, so they stay up to date as runs are added.
-
-    Each `violations.json` entry records the relation, question, source vs followup
-    pass status and test counts, `passes_same_tests`, and code similarity for that
-    violation.
 
     Test logs default to the input result filename with `.tests.log` appended. CSV output is written only when `--csv` is supplied.
 
@@ -4621,25 +4689,33 @@ File: README.md (13199 bytes)
 
     | ID | Name | Target | Transformation |
     |---:|---|---|---|
-    | 0 | `do_nothing` | Question | Leaves the prompt unchanged as a control. |
-    | 1 | `dead_context` | Question | Adds an irrelevant sentence. |
-    | 2 | `constraint_redundant_spec` | Instruction | Adds a redundant language constraint. |
-    | 3 | `format_structural_equivalence` | Question | Converts the prompt into a structured list. |
-    | 4 | `persona_role_prompting` | Instruction | Adds a software-engineer persona. |
-    | 5 | `context_extraneous_narrative` | Question | Adds irrelevant narrative context. |
-    | 6 | `polarity_negative_formulation` | Instruction | Rewrites a return constraint in negative form. |
-    | 7 | `identifier_explicit_naming` | Instruction | Adds explicit variable-naming constraints. |
-    | 8 | `output_formatting_constraint` | Instruction | Adds raw-code output constraints. |
-    | 9 | `hint_trivial_algorithm` | Instruction | Adds a simple algorithmic hint. |
-    | 10 | `order_requirement_permutation` | Question | Reorders independent constraints. |
-    | 11 | `verbosity_lexical_expansion` | Question | Adds short definitions for common terms. |
+    | 0 | `do_nothing` | Prompt description | Returns the original prompt unchanged as a control. |
+    | 1 | `irrelevant_context` | Prompt description | Inserts an irrelevant sentence into the prompt. |
+    | 2 | `constraint_redundant_spec` | Instruction | Inserts a related sentence that does not affect the solution. |
+    | 3 | `format_structural_equivalence` | Prompt description | Converts the prompt into a structured bulleted list. |
+    | 4 | `persona_role_prompting` | Instruction | Prepends a persona to the prompt. |
+    | 5 | `polarity_negative_formulation` | Prompt description | Rewrites the output requirement into an equivalent negative form. |
+    | 6 | `identifier_explicit_naming` | Instruction | Adds explicit internal variable-naming constraints. |
+    | 7 | `order_requirement_permutation` | Prompt description | Reorders independent constraints while preserving meaning. |
+    | 8 | `remove_sentences` | Prompt description | Removes exactly one sentence. |
+    | 9 | `antonym_substitution` | Prompt description | Substitutes key terms with antonyms and adjusts surrounding logic. |
+    | 10 | `synonym_substitution` | Prompt description | Substitutes key terms with synonyms while preserving meaning. |
+    | 11 | `loop_while_only` | Instruction | Requires while loops and forbids for loops. |
+    | 12 | `full_commenting` | Instruction | Requires an inline comment on every non-blank solution line. |
+    | 13 | `dummy_variable` | Instruction | Requires unused dummy variables at the start of the solution. |
+    | 14 | `guard_clause_conditionals` | Instruction | Requires guard clauses instead of nested if-else logic. |
+    | 15 | `use_recursion` | Instruction | Requires recursion and forbids iterative loops. |
+    | 16 | `no_builtin_libraries` | Instruction | Forbids Python standard-library modules. |
+    | 17 | `mandated_library` | Prompt description | Requires a helper-selected standard-library module. |
+    | 18 | `scope_input_narrowing` | Prompt description | Adds a generic guarantee about the input domain. |
+    | 19 | `round_trip_paraphrase` | Prompt description | Replaces the problem with a helper-generated paraphrase. |
 
     Relations are implemented in `metamorphic/relations/mrs.py` and registered in `metamorphic/relations_list.py`.
 
     To add a relation:
 
     1. Add a class derived from `BaseMR`.
-    2. Set its `target` to `question` or `instruction`.
+    2. Set its `target` to `PD` (prompt description) or `I` (instruction).
     3. Implement `name` and `transform(...)`.
     4. Register it in `metamorphic/relations_list.py`.
 
@@ -4675,7 +4751,6 @@ File: README.md (13199 bytes)
     - The embedding model is downloaded on first variability analysis.
     - Update cost rates in `config/settings.py` when provider pricing changes.
 
-
 ---
 
 ## requirements.txt
@@ -4697,22 +4772,19 @@ File: requirements.txt (160 bytes)
     transformers==4.38.2
     tokenizers==0.15.2
 
-
 ---
 
 ## run_all_mrs.py
 
 ```text
-File: run_all_mrs.py (2467 bytes)
+File: run_all_mrs.py (2419 bytes)
 ```
 
     import json
     import subprocess
     import sys
-    from pathlib import Path
-
     from metamorphic.relations_list import RELATIONS
-    from config.settings import GROK_MODEL, DEEPSEEK_MODEL
+    from config.settings import OPENAI_MODEL
     from evaluation.paths import build_results_path
 
 
@@ -4726,7 +4798,7 @@ File: run_all_mrs.py (2467 bytes)
 
 
     def main() -> int:
-        base_results_path = build_results_path(DEEPSEEK_MODEL, None, None)
+        base_results_path = build_results_path(OPENAI_MODEL, None, None)
         model_dir = base_results_path.parent.parent
         out_dir = model_dir / "all_mrs"
         out_path = out_dir / "all_mrs.json"
@@ -4740,7 +4812,7 @@ File: run_all_mrs.py (2467 bytes)
                     sys.executable,
                     "main.py",
                     "--models",
-                    "deepseek",
+                    "openai",
                     "--n",
                     "1",
                     "--mr",
@@ -4751,7 +4823,7 @@ File: run_all_mrs.py (2467 bytes)
             if result.returncode != 0:
                 print(f"MR {mr_id} failed with exit code {result.returncode}")
                 return result.returncode
-            run_results = _load_run_results(DEEPSEEK_MODEL, mr_name, mr_id)
+            run_results = _load_run_results(OPENAI_MODEL, mr_name, mr_id)
             if run_results is None:
                 return 1
             combined_results.extend(run_results)
@@ -4783,13 +4855,12 @@ File: run_all_mrs.py (2467 bytes)
     if __name__ == "__main__":
         raise SystemExit(main())
 
-
 ---
 
 ## runtests.py
 
 ```text
-File: runtests.py (25398 bytes)
+File: runtests.py (22203 bytes)
 ```
 
     """
@@ -4798,11 +4869,11 @@ File: runtests.py (25398 bytes)
     and computes MR verdict.
 
     Usage:
-        python runtests.py --results results/grok/base/base.json
-        python runtests.py --results results/grok/base/base.json --n 5
-        python runtests.py --results results/grok/base/base.json --stdout
-        python runtests.py --results results/grok/mr-05-context_extraneous_narrative.json --followup-only
-        python runtests.py --results results/grok/mr-05-context_extraneous_narrative.json --csv results/grok/metrics.csv
+        python runtests.py --results results/openai/base/base.json
+        python runtests.py --results results/openai/base/base.json --n 5
+        python runtests.py --results results/openai/base/base.json --stdout
+        python runtests.py --results results/openai/mr-05-polarity_negative_formulation.json --followup-only
+        python runtests.py --results results/openai/base/base.json --csv results/openai/metrics.csv
     """
 
     import json
@@ -4825,6 +4896,8 @@ File: runtests.py (25398 bytes)
         compute_token_count,
         compute_token_efficiency,
     )
+    from evaluation.report import format_decimal
+    from evaluation.metric_rows import BASE_CSV_FIELDS, FOLLOWUP_CSV_FIELDS, serialize_metric_csv_row
 
 
     def _response_samples(entry: dict, sample_key: str, primary_key: str) -> list[str]:
@@ -4837,10 +4910,6 @@ File: runtests.py (25398 bytes)
 
     def _code_samples(responses: list[str]) -> list[str | None]:
         return [extract_code(r) for r in responses]
-
-
-    def _fmt(value, digits: int = 4) -> str:
-        return f"{value:.{digits}f}" if isinstance(value, (int, float)) else "N/A"
 
 
     def _delta(value) -> str:
@@ -4857,80 +4926,13 @@ File: runtests.py (25398 bytes)
         path = Path(csv_path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        base_fields = [
-            "id",
-            "extractable_code", "passes_tests", "source_passed",
-            "tests_passed", "tests_failed", "tests_total",
-            "test_run_time",
-            "source_ncloc", "source_cc",
-            "source_mean_distance", "source_std_distance", "source_pairs",
-            "prompt_tokens", "completion_tokens", "total_tokens",
-            "thinking_tokens", "token_efficiency",
-            "llm_call_time",
-        ]
-        mr_extra_fields = [
-            "followup_extractable", "followup_passes_tests", "passes_same_tests", "followup_passed",
-            "followup_tests_passed", "followup_tests_failed", "followup_tests_total",
-            "followup_test_run_time",
-            "followup_ncloc", "followup_cc",
-            "followup_mean_distance", "followup_std_distance", "followup_pairs",
-            "followup_prompt_tokens", "followup_completion_tokens", "followup_total_tokens",
-            "followup_thinking_tokens", "followup_token_efficiency",
-            "followup_llm_call_time",
-            "code_sim", "mr_holds",
-        ]
-        fieldnames = base_fields + (mr_extra_fields if has_mr else [])
+        fieldnames = BASE_CSV_FIELDS + (FOLLOWUP_CSV_FIELDS if has_mr else [])
 
         with open(path, "w", encoding="utf-8", newline="") as f:
             writer = csv.DictWriter(f, fieldnames=fieldnames)
             writer.writeheader()
             for row in metric_rows:
-                src_var = row.get("source_variability") or {}
-                flw_var = row.get("followup_variability") or {}
-                output = {
-                    "id": row.get("id"),
-                    "extractable_code": row.get("source_extractable"),
-                    "passes_tests": row.get("source_passes_tests"),
-                    "source_passed": row.get("source_passed"),
-                    "tests_passed": row.get("tests_passed"),
-                    "tests_failed": row.get("tests_failed"),
-                    "tests_total": row.get("tests_total"),
-                    "test_run_time": row.get("source_test_run_time"),
-                    "source_ncloc": row.get("source_ncloc"),
-                    "source_cc": row.get("source_cc"),
-                    "source_mean_distance": src_var.get("mean_distance"),
-                    "source_std_distance": src_var.get("std_distance"),
-                    "source_pairs": src_var.get("n_pairs"),
-                    "prompt_tokens": row.get("source_prompt_tokens"),
-                    "completion_tokens": row.get("source_completion_tokens"),
-                    "total_tokens": row.get("source_total_tokens"),
-                    "thinking_tokens": row.get("source_thinking_tokens"),
-                    "token_efficiency": row.get("source_token_efficiency"),
-                    "llm_call_time": row.get("source_llm_call_time"),
-                    # MR fields
-                    "followup_extractable": row.get("followup_extractable"),
-                    "followup_passes_tests": row.get("followup_passes_tests"),
-                    "passes_same_tests": row.get("passes_same_tests"),
-                    "followup_passed": row.get("followup_passed"),
-                    "followup_tests_passed": row.get("followup_tests_passed"),
-                    "followup_tests_failed": row.get("followup_tests_failed"),
-                    "followup_tests_total": row.get("followup_tests_total"),
-                    "followup_test_run_time": row.get("followup_test_run_time"),
-                    "followup_ncloc": row.get("followup_ncloc"),
-                    "followup_cc": row.get("followup_cc"),
-                    "followup_mean_distance": flw_var.get("mean_distance"),
-                    "followup_std_distance": flw_var.get("std_distance"),
-                    "followup_pairs": flw_var.get("n_pairs"),
-                    "followup_prompt_tokens": row.get("followup_prompt_tokens"),
-                    "followup_completion_tokens": row.get("followup_completion_tokens"),
-                    "followup_total_tokens": row.get("followup_total_tokens"),
-                    "followup_thinking_tokens": row.get("followup_thinking_tokens"),
-                    "followup_token_efficiency": row.get("followup_token_efficiency"),
-                    "followup_llm_call_time": row.get("followup_llm_call_time"),
-                    "code_sim": row.get("code_sim"),
-                    "mr_holds": row.get("mr_holds"),
-                }
-                writer.writerow({field: output.get(field) for field in fieldnames})
+                writer.writerow(serialize_metric_csv_row(row, has_mr))
         print(f"\n  Wrote metrics CSV -> {path}")
 
 
@@ -4991,6 +4993,56 @@ File: runtests.py (25398 bytes)
         total = tests_passed + tests_failed
         print(f"  [{label}] {tests_passed}/{total} passed  ({total_elapsed:.2f}s)")
         return all_passed, tests_passed, tests_failed, total, code, test_results, total_elapsed
+
+
+    def evaluate_response(
+        response: str,
+        entry: dict,
+        func_name: str | None,
+        debug: bool,
+        label: str,
+        sample_key: str,
+        primary_key: str,
+    ) -> dict:
+        """Execute and measure one source or followup response."""
+        passed, tests_passed, tests_failed, tests_total, code, test_results, run_time = test_response(
+            response, entry, func_name, debug, label=label
+        )
+        metrics = compute_metrics(code)
+        return {
+            "passed": passed,
+            "tests_passed": tests_passed,
+            "tests_failed": tests_failed,
+            "tests_total": tests_total,
+            "test_run_time": round(run_time, 4),
+            "code": code,
+            "test_results": test_results,
+            "extractable": compute_extractable_code(response),
+            "passes_tests": compute_passes_tests(test_results),
+            "ncloc": metrics["ncloc"],
+            "cc": metrics["cyclomatic_complexity"],
+            "variability": compute_pairwise_code_variability(
+                _code_samples(_response_samples(entry, sample_key, primary_key))
+            ),
+        }
+
+
+    def _metric_side(evaluation: dict, side: str) -> dict:
+        """Map an evaluated response to the internal metric-row field names."""
+        prefix = "followup_" if side == "followup" else "source_"
+        tests_prefix = "followup_" if side == "followup" else ""
+        return {
+            f"{prefix}extractable": evaluation["extractable"],
+            f"{prefix}passes_tests": evaluation["passes_tests"],
+            f"{prefix}passed": evaluation["passed"],
+            f"{tests_prefix}tests_passed": evaluation["tests_passed"],
+            f"{tests_prefix}tests_failed": evaluation["tests_failed"],
+            f"{tests_prefix}tests_total": evaluation["tests_total"],
+            f"{prefix}test_run_time": evaluation["test_run_time"],
+            f"{prefix}ncloc": evaluation["ncloc"],
+            f"{prefix}cc": evaluation["cc"],
+            f"{prefix}variability": evaluation["variability"],
+        }
 
 
     def run_tests(
@@ -5056,36 +5108,29 @@ File: runtests.py (25398 bytes)
             if followup_only:
                 primary_response = entry.get("followup_response") or entry.get("response", "")
                 label = "followup" if entry.get("followup_response") else "source"
-                all_passed, tp, tf, tt, code, test_results, run_time = test_response(
-                    primary_response, entry, func_name, debug, label=label
+                evaluation = evaluate_response(
+                    primary_response,
+                    entry,
+                    func_name,
+                    debug,
+                    label,
+                    "followup_response_samples" if label == "followup" else "response_samples",
+                    "followup_response" if label == "followup" else "response",
                 )
-                if all_passed is None:
+                if evaluation["passed"] is None:
                     skipped += 1
                     continue
-                if all_passed:
+                if evaluation["passed"]:
                     passed += 1
                 else:
                     failed += 1
 
-                metrics = compute_metrics(code)
-                sample_key = "followup_response_samples" if label == "followup" else "response_samples"
-                primary_key = "followup_response" if label == "followup" else "response"
-                variability = compute_pairwise_code_variability(
-                    _code_samples(_response_samples(entry, sample_key, primary_key))
-                )
                 metric_rows.append({
                     "id": qid,
                     "question_title": entry.get("question_title"),
                     "difficulty": entry.get("difficulty"),
                     "platform": entry.get("platform"),
-                    "source_extractable": compute_extractable_code(primary_response),
-                    "source_passes_tests": compute_passes_tests(test_results),
-                    "source_passed": all_passed,
-                    "tests_passed": tp, "tests_failed": tf, "tests_total": tt,
-                    "source_test_run_time": round(run_time, 4),
-                    "source_ncloc": metrics["ncloc"],
-                    "source_cc": metrics["cyclomatic_complexity"],
-                    "source_variability": variability,
+                    **_metric_side(evaluation, "source"),
                     "source_prompt_tokens": src_tokens["prompt_tokens"],
                     "source_completion_tokens": src_tokens["completion_tokens"],
                     "source_total_tokens": src_tokens["total_tokens"],
@@ -5097,22 +5142,23 @@ File: runtests.py (25398 bytes)
 
             # ── Source ──────────────────────────────────────────────────────────
             src_response = entry["response"]
-            src_passed, src_tp, src_tf, src_tt, src_code, src_test_results, src_run_time = test_response(
-                src_response, entry, func_name, debug, label="source"
+            source = evaluate_response(
+                src_response,
+                entry,
+                func_name,
+                debug,
+                "source",
+                "response_samples",
+                "response",
             )
 
-            if src_passed is None:
+            if source["passed"] is None:
                 skipped += 1
                 continue
-            if src_passed:
+            if source["passed"]:
                 passed += 1
             else:
                 failed += 1
-
-            src_metrics = compute_metrics(src_code)
-            src_var = compute_pairwise_code_variability(
-                _code_samples(_response_samples(entry, "response_samples", "response"))
-            )
 
             row: dict = {
                 "id": qid,
@@ -5120,17 +5166,7 @@ File: runtests.py (25398 bytes)
                 "difficulty": entry.get("difficulty"),
                 "platform": entry.get("platform"),
 
-                # Source test metrics
-                "source_extractable": compute_extractable_code(src_response),
-                "source_passes_tests": compute_passes_tests(src_test_results),
-                "source_passed": src_passed,
-                "tests_passed": src_tp, "tests_failed": src_tf, "tests_total": src_tt,
-                "source_test_run_time": round(src_run_time, 4),
-
-                # Source code metrics
-                "source_ncloc": src_metrics["ncloc"],
-                "source_cc": src_metrics["cyclomatic_complexity"],
-                "source_variability": src_var,
+                **_metric_side(source, "source"),
 
                 # Source token metrics
                 "source_prompt_tokens": src_tokens["prompt_tokens"],
@@ -5161,12 +5197,18 @@ File: runtests.py (25398 bytes)
             # ── Followup ─────────────────────────────────────────────────────────
             if entry.get("relation") and entry.get("followup_response"):
                 flw_response = entry["followup_response"]
-                flw_passed, flw_tp, flw_tf, flw_tt, flw_code, flw_test_results, flw_run_time = test_response(
-                    flw_response, entry, func_name, debug, label="followup"
+                followup = evaluate_response(
+                    flw_response,
+                    entry,
+                    func_name,
+                    debug,
+                    "followup",
+                    "followup_response_samples",
+                    "followup_response",
                 )
 
-                if flw_passed is not None:
-                    holds = src_passed == flw_passed
+                if followup["passed"] is not None:
+                    holds = source["passed"] == followup["passed"]
                     verdict = "HOLDS" if holds else "VIOLATED"
                     print(f"  MR [{entry['relation']}]: {verdict}")
                     if holds:
@@ -5174,21 +5216,11 @@ File: runtests.py (25398 bytes)
                     else:
                         mr_violated_count += 1
                     row["mr_holds"] = holds
-                    row["followup_passed"] = flw_passed
-                    row["followup_tests_passed"] = flw_tp
-                    row["followup_tests_failed"] = flw_tf
-                    row["followup_tests_total"] = flw_tt
-                    row["followup_test_run_time"] = round(flw_run_time, 4)
 
-                row["followup_extractable"] = compute_extractable_code(flw_response)
-                row["followup_passes_tests"] = compute_passes_tests(flw_test_results)
-                row["passes_same_tests"] = compute_passes_same_tests(src_test_results, flw_test_results)
+                row.update(_metric_side(followup, "followup"))
 
-                flw_metrics = compute_metrics(flw_code)
-                row["followup_ncloc"] = flw_metrics["ncloc"]
-                row["followup_cc"] = flw_metrics["cyclomatic_complexity"]
-                row["followup_variability"] = compute_pairwise_code_variability(
-                    _code_samples(_response_samples(entry, "followup_response_samples", "followup_response"))
+                row["passes_same_tests"] = compute_passes_same_tests(
+                    source["test_results"], followup.get("test_results", [])
                 )
                 row["followup_prompt_tokens"] = flw_tokens["prompt_tokens"]
                 row["followup_completion_tokens"] = flw_tokens["completion_tokens"]
@@ -5197,8 +5229,8 @@ File: runtests.py (25398 bytes)
                 row["followup_token_efficiency"] = flw_token_efficiency
                 row["followup_llm_call_time"] = flw_llm_call_time
 
-                if src_code and flw_code:
-                    row["code_sim"] = compute_code_similarity(src_code, flw_code)
+                if source["code"] and followup.get("code"):
+                    row["code_sim"] = compute_code_similarity(source["code"], followup["code"])
 
             metric_rows.append(row)
 
@@ -5233,7 +5265,7 @@ File: runtests.py (25398 bytes)
                     src_dist = src_var.get("mean_distance")
                     flw_dist = flw_var.get("mean_distance")
                     ncloc_str = f"{r['source_ncloc']}/{r['followup_ncloc'] if r['followup_ncloc'] is not None else 'N/A'}"
-                    cc_str = f"{_fmt(r['source_cc'], 1)}/{_fmt(r['followup_cc'], 1) if r['followup_cc'] is not None else 'N/A'}"
+                    cc_str = f"{format_decimal(r['source_cc'], 1)}/{format_decimal(r['followup_cc'], 1) if r['followup_cc'] is not None else 'N/A'}"
                     mr = ("HOLDS" if r["mr_holds"] else "VIOLATED") if r["mr_holds"] is not None else "N/A"
                     src_res = f"{r['tests_passed']}/{r['tests_total']}" if r.get("tests_total") else "N/A"
                     flw_res = (
@@ -5245,7 +5277,7 @@ File: runtests.py (25398 bytes)
                         else "NO" if r.get("passes_same_tests") is False
                         else "N/A"
                     )
-                    eff = _fmt(r.get("source_token_efficiency"), 3) if r.get("source_token_efficiency") is not None else "N/A"
+                    eff = format_decimal(r.get("source_token_efficiency"), 3) if r.get("source_token_efficiency") is not None else "N/A"
                     llm_t = f"{r['source_llm_call_time']:.1f}s" if r.get("source_llm_call_time") is not None else "N/A"
                     d_ncloc = _delta(
                         r["followup_ncloc"] - r["source_ncloc"]
@@ -5260,7 +5292,7 @@ File: runtests.py (25398 bytes)
                     print(
                         f"  {r['id']:<15} {src_res:>6} {flw_res:>6} {same_tst:>7} {ncloc_str:>6} {d_ncloc:>5} "
                         f"{cc_str:>6} {d_cc:>5} "
-                        f"{_fmt(r.get('code_sim'), 4):>7} {_fmt(src_dist, 4):>7} {_fmt(flw_dist, 4):>7} "
+                        f"{format_decimal(r.get('code_sim'), 4):>7} {format_decimal(src_dist, 4):>7} {format_decimal(flw_dist, 4):>7} "
                         f"{_variation_greater(src_dist, flw_dist):>5} "
                         f"{eff:>6} {llm_t:>6} {mr:>8}"
                     )
@@ -5277,12 +5309,12 @@ File: runtests.py (25398 bytes)
                     src_var = r.get("source_variability") or {}
                     tests_str = f"{r.get('tests_passed', '?')}/{r.get('tests_total', '?')}"
                     ext = "YES" if r.get("source_extractable") else "NO"
-                    eff = _fmt(r.get("source_token_efficiency"), 3) if r.get("source_token_efficiency") is not None else "N/A"
+                    eff = format_decimal(r.get("source_token_efficiency"), 3) if r.get("source_token_efficiency") is not None else "N/A"
                     llm_t = f"{r['source_llm_call_time']:.1f}s" if r.get("source_llm_call_time") is not None else "N/A"
                     test_t = f"{r['source_test_run_time']:.2f}s" if r.get("source_test_run_time") is not None else "N/A"
                     print(
                         f"  {r['id']:<15} {tests_str:>8} {ext:>7} {r['source_ncloc']:>6} {r['source_cc']:>6} "
-                        f"{_fmt(src_var.get('mean_distance'), 4):>8} {_fmt(src_var.get('std_distance'), 4):>7} "
+                        f"{format_decimal(src_var.get('mean_distance'), 4):>8} {format_decimal(src_var.get('std_distance'), 4):>7} "
                         f"{eff:>6} {llm_t:>6} {test_t:>6}"
                     )
 
@@ -5309,7 +5341,7 @@ File: runtests.py (25398 bytes)
         return metric_rows
 
 
-    class _Tee:
+    class Tee:
         def __init__(self, *streams):
             self._streams = streams
 
@@ -5338,7 +5370,7 @@ File: runtests.py (25398 bytes)
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
         with open(out_path, "w", encoding="utf-8") as f:
-            stream = _Tee(sys.stdout, f) if args.stdout else f
+            stream = Tee(sys.stdout, f) if args.stdout else f
             with redirect_stdout(stream), redirect_stderr(stream):
                 run_tests(
                     args.results, args.n,
@@ -5348,5 +5380,153 @@ File: runtests.py (25398 bytes)
                     write_outputs=args.write_outputs,
                 )
 
-
 ---
+
+## tests/test_regressions.py
+
+```text
+File: tests/test_regressions.py (5496 bytes)
+```
+
+    import unittest
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from evaluation.metric_violations import check_metric_violations
+    from evaluation.report import format_decimal, format_value
+    from evaluation.runner import PipelineRunner
+    from llms.claude_model import ClaudeModel
+    from llms.gemini_model import GeminiModel
+    from llms.mr_helper import MRHelper
+    from metamorphic.relations.mrs import MR19, _clean_library_name
+
+
+    class MRRegressionTests(unittest.TestCase):
+        def test_empty_library_name_uses_fallback(self):
+            self.assertEqual(_clean_library_name(""), "a suitable standard library module")
+
+        @patch("metamorphic.relations.mrs.mr_llm_transform", return_value="")
+        def test_mr19_empty_solve_response_returns_original(self, transform):
+            original = "Original problem"
+
+            self.assertEqual(MR19().transform(original), original)
+            transform.assert_called_once()
+
+        @patch(
+            "metamorphic.relations.mrs.mr_llm_transform",
+            side_effect=["```python\nprint('ok')\n```", ""],
+        )
+        def test_mr19_empty_explanation_returns_original(self, transform):
+            original = "Original problem"
+
+            self.assertEqual(MR19().transform(original), original)
+            self.assertEqual(transform.call_count, 2)
+
+
+    class MetricRegressionTests(unittest.TestCase):
+        def test_static_metric_error_sentinels_are_not_compared(self):
+            violations = check_metric_violations(
+                {"ncloc": -1, "cyclomatic_complexity": -2},
+                {"ncloc": 20, "cyclomatic_complexity": 5.0},
+            )
+
+            self.assertNotIn("ncloc", violations)
+            self.assertNotIn("cyclomatic_complexity", violations)
+
+        def test_static_metric_error_sentinels_display_as_unavailable(self):
+            for sentinel in (-1, -1.0, -2, -2.0):
+                with self.subTest(sentinel=sentinel):
+                    self.assertEqual(format_value(sentinel), "N/A")
+                    self.assertEqual(format_decimal(sentinel), "N/A")
+
+
+    class ProviderMetadataTests(unittest.TestCase):
+        @patch("llms.mr_helper.update_costs")
+        def test_helper_usage_is_sent_to_cost_tracker(self, update_costs):
+            usage = SimpleNamespace(prompt_tokens=10, completion_tokens=4, total_tokens=14)
+            response = SimpleNamespace(
+                choices=[SimpleNamespace(
+                    finish_reason="stop",
+                    message=SimpleNamespace(content="answer"),
+                )],
+                usage=usage,
+            )
+            helper = MRHelper.__new__(MRHelper)
+            helper.client = SimpleNamespace(
+                chat=SimpleNamespace(
+                    completions=SimpleNamespace(create=lambda **kwargs: response),
+                ),
+            )
+            helper._model_name = "helper-model"
+            helper._last_usage = None
+
+            with patch("llms.mr_helper._log_helper_call"):
+                self.assertEqual(helper.transform("system", "user"), "answer")
+
+            update_costs.assert_called_once_with(
+                "helper-model",
+                {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
+            )
+
+        @patch("llms.base.update_costs")
+        def test_claude_records_timing_and_stop_reason(self, _update_costs):
+            message = SimpleNamespace(
+                content=[SimpleNamespace(text="answer")],
+                stop_reason="end_turn",
+                usage=SimpleNamespace(input_tokens=10, output_tokens=4),
+            )
+            model = ClaudeModel.__new__(ClaudeModel)
+            model._model_name = "claude-test"
+            model.client = SimpleNamespace(
+                messages=SimpleNamespace(create=lambda **kwargs: message),
+            )
+
+            self.assertEqual(model.generate("prompt"), "answer")
+            self.assertIsInstance(model.last_call_time, float)
+            self.assertEqual(model.last_finish_reason, "end_turn")
+
+        @patch("llms.base.update_costs")
+        def test_gemini_records_timing_and_finish_reason(self, _update_costs):
+            finish_reason = SimpleNamespace(name="MAX_TOKENS")
+            response = SimpleNamespace(
+                text="answer",
+                candidates=[SimpleNamespace(finish_reason=finish_reason)],
+                usage_metadata=SimpleNamespace(
+                    prompt_token_count=10,
+                    candidates_token_count=4,
+                    total_token_count=14,
+                ),
+            )
+            model = GeminiModel.__new__(GeminiModel)
+            model._model_name = "gemini-test"
+            model.client = SimpleNamespace(
+                models=SimpleNamespace(generate_content=lambda **kwargs: response),
+            )
+
+            self.assertEqual(model.generate("prompt"), "answer")
+            self.assertIsInstance(model.last_call_time, float)
+            self.assertEqual(model.last_finish_reason, "MAX_TOKENS")
+
+        def test_runner_collects_finish_reason(self):
+            model = SimpleNamespace(
+                last_usage={"prompt_tokens": 1, "completion_tokens": 1},
+                last_call_time=0.25,
+                last_finish_reason="stop",
+                generate=lambda prompt: "answer",
+            )
+            runner = PipelineRunner([], [], delay=0)
+            totals = {
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+                "total_tokens": 0,
+                "thinking_tokens": 0,
+                "reported": False,
+            }
+
+            generated = runner._generate_responses(model, "prompt", totals)
+
+            self.assertEqual(generated.primary_finish_reason, "stop")
+
+
+    if __name__ == "__main__":
+        unittest.main()

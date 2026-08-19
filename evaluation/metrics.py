@@ -13,6 +13,7 @@ from radon.raw import analyze
 from radon.complexity import cc_visit
 
 from evaluation.executor import extract_code
+from config.settings import configure_huggingface_environment
 
 
 def _codesim_debug(message: str) -> None:
@@ -42,11 +43,7 @@ def _get_transformer_encoder():
     from config.settings import CODE_EMBEDDING_MODEL, CODE_TOKENIZER_MODEL
 
     os.environ.setdefault("DISABLE_SAFETENSORS_CONVERSION", "1")
-    os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
-    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
-    os.environ.setdefault("HUGGINGFACE_HUB_DISABLE_PROGRESS_BARS", "1")
-    os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
-    os.environ.setdefault("TRANSFORMERS_NO_ADVISORY_WARNINGS", "1")
+    configure_huggingface_environment()
 
     warnings.filterwarnings(
         "ignore",

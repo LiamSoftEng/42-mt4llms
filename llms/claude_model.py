@@ -1,6 +1,6 @@
 import anthropic
 from .base import BaseLLM
-from config.settings import ANTHROPIC_API_KEY, CLAUDE_MODEL, MAX_TOKENS, TEMPERATURE
+from config.settings import ANTHROPIC_API_KEY, CLAUDE_MODEL, MAX_TOKENS
 
 
 class ClaudeModel(BaseLLM):
@@ -13,11 +13,14 @@ class ClaudeModel(BaseLLM):
         return self._model_name
 
     def generate(self, prompt: str) -> str:
-        message = self.client.messages.create(
-            model=self._model_name,
-            max_tokens=MAX_TOKENS,
-            messages=[{"role": "user", "content": prompt}],
+        message = self._record_timed_call(
+            lambda: self.client.messages.create(
+                model=self._model_name,
+                max_tokens=MAX_TOKENS,
+                messages=[{"role": "user", "content": prompt}],
+            )
         )
+        self._set_last_finish_reason(getattr(message, "stop_reason", None))
         usage = getattr(message, "usage", None)
         if usage is not None:
             prompt_tokens = getattr(usage, "input_tokens", None)

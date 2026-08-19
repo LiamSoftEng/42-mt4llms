@@ -1,6 +1,6 @@
 import json
 import time
-from dataclasses import dataclass, asdict, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import List
 from pathlib import Path
 
@@ -86,6 +86,38 @@ def _accumulate_usage(totals: dict, usage: dict | None) -> None:
             totals["reported"] = True
 
 
+def _token_efficiency(usage: dict | None) -> float | None:
+    _, completion_tokens, _, thinking_tokens = _extract_usage(usage)
+    if thinking_tokens and completion_tokens:
+        return round(completion_tokens / thinking_tokens, 6)
+    return None
+
+
+@dataclass
+class GeneratedResponses:
+    responses: list[str] = field(default_factory=list)
+    usages: list[dict | None] = field(default_factory=list)
+    call_times: list[float | None] = field(default_factory=list)
+    finish_reasons: list[str | None] = field(default_factory=list)
+    error: str = ""
+
+    @property
+    def primary_response(self) -> str:
+        return self.responses[0] if self.responses else ""
+
+    @property
+    def primary_usage(self) -> dict | None:
+        return self.usages[0] if self.usages else None
+
+    @property
+    def primary_call_time(self) -> float | None:
+        return self.call_times[0] if self.call_times else None
+
+    @property
+    def primary_finish_reason(self) -> str | None:
+        return self.finish_reasons[0] if self.finish_reasons else None
+
+
 @dataclass
 class LLMResult:
     question_id: str
@@ -112,6 +144,7 @@ class LLMResult:
 
     # Timing — source
     llm_call_time: float | None = None          # wall-clock seconds for generate()
+    finish_reason: str | None = None
 
     # MT fields — only populated when --mr is used
     relation: str = ""
@@ -131,6 +164,7 @@ class LLMResult:
 
     # Timing — followup
     followup_llm_call_time: float | None = None
+    followup_finish_reason: str | None = None
 
 
 class PipelineRunner:
@@ -154,6 +188,36 @@ class PipelineRunner:
         self.prompt_repeats = max(1, prompt_repeats)
         self.resume = resume
         Path(RESULTS_DIR).mkdir(exist_ok=True)
+
+    def _generate_responses(
+        self,
+        model: BaseLLM,
+        prompt: str,
+        token_totals: dict,
+    ) -> GeneratedResponses:
+        generated = GeneratedResponses()
+        for repeat_index in range(self.prompt_repeats):
+            try:
+                response = model.generate(prompt)
+                usage = model.last_usage
+                call_time = model.last_call_time
+                finish_reason = model.last_finish_reason
+            except Exception as exc:
+                response = ""
+                usage = None
+                call_time = None
+                finish_reason = None
+                if repeat_index == 0:
+                    generated.error = str(exc)
+
+            generated.responses.append(response)
+            generated.usages.append(usage)
+            generated.call_times.append(call_time)
+            generated.finish_reasons.append(finish_reason)
+            _accumulate_usage(token_totals, usage)
+            if repeat_index < self.prompt_repeats - 1:
+                time.sleep(self.delay)
+        return generated
 
     def run(self):
         for model in self.models:
@@ -209,37 +273,17 @@ class PipelineRunner:
                 print(f"  [{i+1}/{len(self.dataset)}] {sample['question_id']} ({sample['difficulty']})", end=" ... ")
 
                 # ── Source response ──────────────────────────────────────────
-                response = ""
-                response_samples = []
-                usage_samples: list[dict | None] = []
-                call_time_samples: list[float | None] = []
-                error = ""
-                usage = None
-                llm_call_time: float | None = None
+                source = GeneratedResponses()
 
                 if not (self.relation and self.mr_only):
-                    for repeat_index in range(self.prompt_repeats):
-                        try:
-                            current_response = model.generate(prompt)
-                            current_usage = model.last_usage
-                            current_call_time = model.last_call_time
-                        except Exception as e:
-                            current_response = ""
-                            current_usage = None
-                            current_call_time = None
-                            if repeat_index == 0:
-                                error = str(e)
+                    source = self._generate_responses(model, prompt, token_totals)
 
-                        response_samples.append(current_response)
-                        usage_samples.append(current_usage)
-                        call_time_samples.append(current_call_time)
-                        if repeat_index == 0:
-                            response = current_response
-                            usage = current_usage
-                            llm_call_time = current_call_time
-                        _accumulate_usage(token_totals, current_usage)
-                        if repeat_index < self.prompt_repeats - 1:
-                            time.sleep(self.delay)
+                response = source.primary_response
+                response_samples = source.responses
+                error = source.error
+                usage = source.primary_usage
+                llm_call_time = source.primary_call_time
+                finish_reason = source.primary_finish_reason
 
                 if self.relation and self.mr_only and base_results:
                     base_entry = base_results.get(sample["question_id"])
@@ -248,11 +292,10 @@ class PipelineRunner:
                         response_samples = base_entry.get("response_samples") or ([response] if response else [])
                         error = base_entry.get("error", "")
                         llm_call_time = base_entry.get("llm_call_time")
+                        finish_reason = base_entry.get("finish_reason")
 
                 prompt_tokens, completion_tokens, total_tokens, thinking_tokens = _extract_usage(usage)
-                token_efficiency: float | None = None
-                if thinking_tokens and completion_tokens:
-                    token_efficiency = round(completion_tokens / thinking_tokens, 6)
+                token_efficiency = _token_efficiency(usage)
 
                 # ── Followup response ────────────────────────────────────────
                 followup_question = ""
@@ -267,6 +310,7 @@ class PipelineRunner:
                 followup_thinking_tokens = None
                 followup_token_efficiency = None
                 followup_llm_call_time: float | None = None
+                followup_finish_reason: str | None = None
 
                 if self.relation:
                     target = getattr(self.relation, "target", "PD")
@@ -283,35 +327,19 @@ class PipelineRunner:
                         )
                         followup_prompt = build_prompt(question, followup_instruction_prefix, followup_instruction_suffix)
 
-                    for repeat_index in range(self.prompt_repeats):
-                        try:
-                            current_followup_response = model.generate(followup_prompt)
-                            followup_usage = model.last_usage
-                            current_followup_call_time = model.last_call_time
-                        except Exception as e:
-                            current_followup_response = ""
-                            followup_usage = None
-                            current_followup_call_time = None
-                            if repeat_index == 0:
-                                followup_error = str(e)
-
-                        followup_response_samples.append(current_followup_response)
-                        if repeat_index == 0:
-                            followup_response = current_followup_response
-                            (
-                                followup_prompt_tokens,
-                                followup_completion_tokens,
-                                followup_total_tokens,
-                                followup_thinking_tokens,
-                            ) = _extract_usage(followup_usage)
-                            followup_llm_call_time = current_followup_call_time
-                            if followup_thinking_tokens and followup_completion_tokens:
-                                followup_token_efficiency = round(
-                                    followup_completion_tokens / followup_thinking_tokens, 6
-                                )
-                        _accumulate_usage(token_totals, followup_usage)
-                        if repeat_index < self.prompt_repeats - 1:
-                            time.sleep(self.delay)
+                    followup = self._generate_responses(model, followup_prompt, token_totals)
+                    followup_response = followup.primary_response
+                    followup_response_samples = followup.responses
+                    followup_error = followup.error
+                    (
+                        followup_prompt_tokens,
+                        followup_completion_tokens,
+                        followup_total_tokens,
+                        followup_thinking_tokens,
+                    ) = _extract_usage(followup.primary_usage)
+                    followup_token_efficiency = _token_efficiency(followup.primary_usage)
+                    followup_llm_call_time = followup.primary_call_time
+                    followup_finish_reason = followup.primary_finish_reason
 
                     if self.mr_only:
                         print(f"ok (mr-only + {self.relation.name} [{target}], repeats={self.prompt_repeats})")
@@ -320,7 +348,7 @@ class PipelineRunner:
                 else:
                     print(f"ok (repeats={self.prompt_repeats})" if self.prompt_repeats > 1 else "ok")
 
-                result_entry = asdict(LLMResult(
+                result = LLMResult(
                     question_id=sample["question_id"],
                     question_title=sample["question_title"],
                     difficulty=sample["difficulty"],
@@ -341,6 +369,7 @@ class PipelineRunner:
                     thinking_tokens=thinking_tokens,
                     token_efficiency=token_efficiency,
                     llm_call_time=llm_call_time,
+                    finish_reason=finish_reason,
                     relation=self.relation.name if self.relation else "",
                     followup_instruction_prefix=followup_instruction_prefix,
                     followup_instruction_suffix=followup_instruction_suffix,
@@ -354,7 +383,9 @@ class PipelineRunner:
                     followup_thinking_tokens=followup_thinking_tokens,
                     followup_token_efficiency=followup_token_efficiency,
                     followup_llm_call_time=followup_llm_call_time,
-                ))
+                    followup_finish_reason=followup_finish_reason,
+                )
+                result_entry = asdict(result)
                 results = [entry for entry in results if entry.get("question_id") != sample["question_id"]]
                 results.append(result_entry)
                 completed_ids.add(sample["question_id"])
@@ -363,32 +394,22 @@ class PipelineRunner:
                 # ── Per-repeat result files (base run only, repeats > 1) ───────
                 if write_repeat_files:
                     for idx, rep_response in enumerate(response_samples):
-                        rep_usage = usage_samples[idx] if idx < len(usage_samples) else None
+                        rep_usage = source.usages[idx] if idx < len(source.usages) else None
                         rep_ptok, rep_ctok, rep_ttok, rep_thtok = _extract_usage(rep_usage)
-                        rep_eff = None
-                        if rep_thtok and rep_ctok:
-                            rep_eff = round(rep_ctok / rep_thtok, 6)
-
-                        rep_entry = asdict(LLMResult(
-                            question_id=sample["question_id"],
-                            question_title=sample["question_title"],
-                            difficulty=sample["difficulty"],
-                            platform=sample["platform"],
-                            model_name=model.model_name,
-                            instruction_prefix=INSTRUCTION_PREFIX,
-                            instruction_suffix=INSTRUCTION_SUFFIX,
-                            question=question,
+                        rep_entry = asdict(replace(
+                            result,
                             response=rep_response,
-                            public_test_cases=json.dumps(sample.get("public_test_cases", [])),
-                            private_test_cases=sample.get("private_test_cases", ""),
-                            metadata=json.dumps(sample.get("metadata", {})),
+                            response_samples=[],
                             error=error if idx == 0 else "",
                             prompt_tokens=rep_ptok,
                             completion_tokens=rep_ctok,
                             total_tokens=rep_ttok,
                             thinking_tokens=rep_thtok,
-                            token_efficiency=rep_eff,
-                            llm_call_time=call_time_samples[idx] if idx < len(call_time_samples) else None,
+                            token_efficiency=_token_efficiency(rep_usage),
+                            llm_call_time=source.call_times[idx] if idx < len(source.call_times) else None,
+                            finish_reason=(
+                                source.finish_reasons[idx] if idx < len(source.finish_reasons) else None
+                            ),
                         ))
                         repeat_results[idx] = [
                             e for e in repeat_results[idx] if e.get("question_id") != sample["question_id"]

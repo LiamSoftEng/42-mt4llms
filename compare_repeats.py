@@ -18,9 +18,9 @@ from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from statistics import mean, stdev
 
-from runtests import run_tests, _Tee
+from runtests import Tee, run_tests
 from evaluation.paths import build_results_path
-from evaluation.report import _CSS, _fmt_duration, _pass_badge
+from evaluation.report import REPORT_CSS, format_duration, pass_badge
 
 
 def _resolve_dir(model: str | None, dir_arg: str | None) -> Path:
@@ -31,20 +31,18 @@ def _resolve_dir(model: str | None, dir_arg: str | None) -> Path:
     return build_results_path(model, None, None).parent / "repeats"
 
 
-def _mean_metric(rows: list[dict], key: str) -> float | None:
-    values = [r[key] for r in rows if isinstance(r.get(key), (int, float)) and r.get(key) != -1]
-    return round(mean(values), 3) if values else None
+def _numeric_mean(values, digits: int | None = None) -> float | None:
+    numbers = [value for value in values if isinstance(value, (int, float)) and value != -1]
+    if not numbers:
+        return None
+    result = mean(numbers)
+    return round(result, digits) if digits is not None else result
 
 
 def _fmt_number(value: float | None) -> str:
     if value is None:
         return "N/A"
     return f"{value:,.1f}"
-
-
-def _mean_list(values: list) -> float | None:
-    nums = [v for v in values if isinstance(v, (int, float)) and v != -1]
-    return mean(nums) if nums else None
 
 
 _QUESTION_METRIC_KEYS = ("pass", "ncloc", "cc", "tokens", "call_time")
@@ -162,7 +160,7 @@ def _write_html_report(
         </div>
         <div class="stat-box">
             <div class="stat-label">Mean LLM call time</div>
-            <div class="stat-value">{_fmt_duration(mean_call)}</div>
+            <div class="stat-value">{format_duration(mean_call)}</div>
             <div class="stat-sub">per problem</div>
         </div>"""
 
@@ -178,7 +176,7 @@ def _write_html_report(
                 <td>{_fmt_number(r['mean_ncloc'])}</td>
                 <td>{_fmt_number(r['mean_cc'])}</td>
                 <td>{_fmt_number(r['mean_total_tokens'])}</td>
-                <td>{_fmt_duration(r['mean_llm_call_time'])}</td>
+                <td>{format_duration(r['mean_llm_call_time'])}</td>
             </tr>"""
 
     table_headers = """
@@ -195,7 +193,7 @@ def _write_html_report(
     for q in per_question.values():
         passes = q["pass"]
         run_badges = "".join(
-            f"<td>{_pass_badge(p)}</td>" for p in passes
+            f"<td>{pass_badge(p)}</td>" for p in passes
         )
         non_none = {p for p in passes if p is not None}
         consistent = len(non_none) <= 1
@@ -219,10 +217,10 @@ def _write_html_report(
                 </td>
                 {run_badges}
                 <td>{consistency_badge}</td>
-                <td>{_fmt_number(_mean_list(q["ncloc"]))}</td>
-                <td>{_fmt_number(_mean_list(q["cc"]))}</td>
-                <td>{_fmt_number(_mean_list(q["tokens"]))}</td>
-                <td>{_fmt_duration(_mean_list(q["call_time"]))}</td>
+                <td>{_fmt_number(_numeric_mean(q["ncloc"]))}</td>
+                <td>{_fmt_number(_numeric_mean(q["cc"]))}</td>
+                <td>{_fmt_number(_numeric_mean(q["tokens"]))}</td>
+                <td>{format_duration(_numeric_mean(q["call_time"]))}</td>
             </tr>"""
 
     run_head_cells = "".join(f"<th>R{i+1}</th>" for i in range(n_runs))
@@ -252,7 +250,7 @@ def _write_html_report(
 <meta charset="UTF-8">
 <title>Repeat comparison — {repeats_dir}</title>
 <style>
-{_CSS}
+{REPORT_CSS}
   h2 {{ font-size: 1.1rem; margin: 2rem 0 0.75rem; color: #212529; }}
 </style>
 </head>
@@ -295,7 +293,7 @@ def compare(repeats_dir: Path, csv_out: str | None = None, html_out: str | None 
 
         log_path = f.with_suffix(".tests.log")
         with open(log_path, "w", encoding="utf-8") as log_fh:
-            with redirect_stdout(_Tee(sys.stdout, log_fh)), redirect_stderr(_Tee(sys.stdout, log_fh)):
+            with redirect_stdout(Tee(sys.stdout, log_fh)), redirect_stderr(Tee(sys.stdout, log_fh)):
                 metric_rows = run_tests(
                     str(f),
                     csv_path=str(f.with_suffix(".metrics.csv")),
@@ -312,10 +310,10 @@ def compare(repeats_dir: Path, csv_out: str | None = None, html_out: str | None 
             "passed": passed,
             "pass_rate": round(passed / total, 4) if total else None,
             "extractable_rate": round(extractable / total, 4) if total else None,
-            "mean_ncloc": _mean_metric(metric_rows, "source_ncloc"),
-            "mean_cc": _mean_metric(metric_rows, "source_cc"),
-            "mean_total_tokens": _mean_metric(metric_rows, "source_total_tokens"),
-            "mean_llm_call_time": _mean_metric(metric_rows, "source_llm_call_time"),
+            "mean_ncloc": _numeric_mean((row.get("source_ncloc") for row in metric_rows), 3),
+            "mean_cc": _numeric_mean((row.get("source_cc") for row in metric_rows), 3),
+            "mean_total_tokens": _numeric_mean((row.get("source_total_tokens") for row in metric_rows), 3),
+            "mean_llm_call_time": _numeric_mean((row.get("source_llm_call_time") for row in metric_rows), 3),
         })
 
         # run_tests deliberately omits rows that cannot be evaluated (for

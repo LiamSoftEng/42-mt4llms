@@ -57,7 +57,8 @@ def _remove_random_sentence(text: str) -> str:
     return "".join(sentences)
 
 def _clean_library_name(raw: str) -> str:
-    name = raw.strip().splitlines()[0].strip()
+    lines = raw.strip().splitlines()
+    name = lines[0].strip() if lines else ""
     name = name.strip("`\"'. ")
     if not name or len(name) > 40:
         name = "a suitable standard library module"
@@ -263,7 +264,6 @@ class MR17(BaseMR):
         suggestion = mr_llm_transform(phrases.LIBRARY_SUGGESTION_PROMPT, text)
         library = _clean_library_name(suggestion)
         constraint = f"You must use Python's {library} in your solution."
-        print(f"  [mr17] helper suggested: {library}")
         return _insert_after_first_line(text, constraint)
 
 class MR18(BaseMR):
@@ -289,10 +289,12 @@ class MR19(BaseMR):
 
     def transform(self, text: str) -> str:
         solve_response = mr_llm_transform(phrases.ROUND_TRIP_SOLVE_PROMPT, text)
+        if not solve_response.strip():
+            return text
         code = extract_code(solve_response)
         if not code:
             # Helper failed to produce a fenced block — fall back to the raw
             # response so the MR doesn't silently return an empty prompt.
             code = solve_response
         explanation = mr_llm_transform(phrases.ROUND_TRIP_EXPLAIN_PROMPT, code)
-        return explanation
+        return explanation if explanation.strip() else text

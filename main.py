@@ -5,15 +5,13 @@ import sys
 from data.loader import load_livecode_bench
 from evaluation.paths import build_results_path
 from evaluation.runner import PipelineRunner
-from llms import ClaudeModel, OpenAIModel, GeminiModel, DeepSeekModel, GrokModel
+from llms import ClaudeModel, GeminiModel, OpenAIModel
 from metamorphic.relations_list import RELATIONS
 
 MODEL_CHOICES = {
     "claude": ClaudeModel,
     "openai": OpenAIModel,
     "gemini": GeminiModel,
-    "deepseek": DeepSeekModel,
-    "grok": GrokModel,
 }
 
 def get_relation(mr_id: int):
@@ -22,6 +20,30 @@ def get_relation(mr_id: int):
         raise ValueError(f"Unknown MR: {mr_id}. Available: {available}")
     entry = RELATIONS[mr_id]
     return entry["class"]()
+
+
+def parse_mr(value: str) -> int | str:
+    if value.lower() == "all":
+        return "all"
+    try:
+        return int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("MR must be an integer ID or 'all'") from exc
+
+
+def resolve_relation_ids(values: list[int | str] | None) -> list[int]:
+    if not values:
+        return []
+    if "all" in values:
+        if len(values) != 1:
+            raise ValueError("'all' cannot be combined with individual MR IDs")
+        return sorted(RELATIONS)
+
+    relation_ids = list(dict.fromkeys(values))
+    unknown = [mr_id for mr_id in relation_ids if mr_id not in RELATIONS]
+    if unknown:
+        raise ValueError(f"Unknown MR(s): {unknown}. Available: {sorted(RELATIONS)}")
+    return relation_ids
 
 def _run_tests(model_name: str, relation_name: str | None, relation_id: int | None, followup_only: bool) -> int:
     results_path = build_results_path(model_name, relation_name, relation_id)
@@ -66,9 +88,11 @@ def parse_args():
     )
     parser.add_argument(
         "--mr",
-        type=int,
+        nargs="+",
+        type=parse_mr,
         default=None,
-        help="Apply a metamorphic relation alongside the normal run. e.g. --mr 1",
+        metavar="ID|all",
+        help="Apply one or more metamorphic relations. e.g. --mr 1 4 7 or --mr all",
     )
     parser.add_argument(
         "--mr-only",
@@ -96,35 +120,47 @@ def parse_args():
 def main() -> int:
     args = parse_args()
 
-    dataset = load_livecode_bench(n_samples=args.n, after=args.after, difficulty=args.difficulty)
-    models = [MODEL_CHOICES[name]() for name in args.models]
-    relation = get_relation(args.mr) if args.mr is not None else None
-    if args.mr_only and args.mr is None:
+    try:
+        relation_ids = resolve_relation_ids(args.mr)
+    except ValueError as exc:
+        print(exc)
+        return 2
+    if args.mr_only and not relation_ids:
         print("--mr-only requires --mr to be set")
         return 2
     if args.repeats < 1:
         print("--repeats must be at least 1")
         return 2
 
-    print(f"Running models: {[m.model_name for m in models]}, on metamorphic relation: {args.mr is not None}")
+    dataset = load_livecode_bench(n_samples=args.n, after=args.after, difficulty=args.difficulty)
+    models = [MODEL_CHOICES[name]() for name in args.models]
+    runs = relation_ids or [None]
+    print(f"Running models: {[model.model_name for model in models]}, MRs: {relation_ids or ['base']}")
 
-    runner = PipelineRunner(
-        models=models,
-        dataset=dataset,
-        relation=relation,
-        relation_id=args.mr,
-        mr_only=args.mr_only,
-        prompt_repeats=args.repeats,
-        resume=args.resume,
-    )
-    runner.run()
+    for relation_id in runs:
+        relation = get_relation(relation_id) if relation_id is not None else None
+        runner = PipelineRunner(
+            models=models,
+            dataset=dataset,
+            relation=relation,
+            relation_id=relation_id,
+            mr_only=args.mr_only,
+            prompt_repeats=args.repeats,
+            resume=args.resume,
+        )
+        runner.run()
 
-    if args.run_tests:
-        for model in models:
-            relation_name = relation.name if relation else None
-            exit_code = _run_tests(model.model_name, relation_name, args.mr, args.mr_only)
-            if exit_code != 0:
-                return exit_code
+        if args.run_tests:
+            for model in models:
+                relation_name = relation.name if relation else None
+                exit_code = _run_tests(
+                    model.model_name,
+                    relation_name,
+                    relation_id,
+                    args.mr_only,
+                )
+                if exit_code != 0:
+                    return exit_code
     return 0
 
 if __name__ == "__main__":

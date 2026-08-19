@@ -1,35 +1,41 @@
 """
-Generates an HTML comparison report from base and followup results files.
-The merged report (all.html) is composed from the verbatim bodies of the
-individual per-run HTML reports, so its styling is identical to theirs.
+Generates HTML comparison reports from base and followup results files.
+Merged reports reuse the same section builder and styles as individual reports.
 """
 
 from pathlib import Path
 import json
-import re
 
 from evaluation.paths import safe_name
 from evaluation.metric_violations import check_metric_violations
 
 
-def _fmt(value, digits: int = 4) -> str:
+def format_value(value, digits: int = 4) -> str:
+    if value is None or value in (-1, -2):
+        return "N/A"
     if isinstance(value, float):
         return f"{value:.{digits}f}"
-    if value is None or value == -1:
-        return "N/A"
     return str(value)
 
 
+def format_decimal(value, digits: int = 4) -> str:
+    """Format numeric terminal-table values with a fixed decimal precision."""
+    if value is None or value in (-1, -2):
+        return "N/A"
+    return f"{value:.{digits}f}" if isinstance(value, (int, float)) else "N/A"
+
+
 def _delta(a, b) -> str:
-    if isinstance(a, (int, float)) and isinstance(b, (int, float)) and a != -1 and b != -1:
+    if (
+        isinstance(a, (int, float))
+        and isinstance(b, (int, float))
+        and not isinstance(a, bool)
+        and not isinstance(b, bool)
+        and a not in (-1, -2)
+        and b not in (-1, -2)
+    ):
         d = b - a
         return f"{d:+.2f}" if isinstance(d, float) else f"{d:+d}"
-    return "N/A"
-
-
-def _pct(numerator, denominator) -> str:
-    if isinstance(numerator, int) and isinstance(denominator, int) and denominator > 0:
-        return f"{round(numerator / denominator * 100)}%"
     return "N/A"
 
 
@@ -66,7 +72,7 @@ def _violation_span(text: str, detail: dict | None) -> str:
     return f'<span class="delta-neg"{title}>{text}</span>'
 
 
-def _pass_badge(passed: bool | None) -> str:
+def pass_badge(passed: bool | None) -> str:
     if passed is True:
         return '<span class="badge holds">PASS</span>'
     if passed is False:
@@ -115,7 +121,7 @@ def _fmt_tokens(prompt, completion, thinking) -> str:
     return " ".join(parts) if parts else "N/A"
 
 
-def _fmt_duration(seconds) -> str:
+def format_duration(seconds) -> str:
     if not isinstance(seconds, (int, float)):
         return "N/A"
     seconds = round(seconds, 1)
@@ -246,13 +252,13 @@ def _build_section(base: dict, followup: dict, relation_name: str | None) -> dic
         b_test_t = f'{b.get("test_run_time"):.2f}s' if isinstance(b.get("test_run_time"), (int, float)) else "N/A"
         f_test_t = f'{f.get("test_run_time"):.2f}s' if has_mr and isinstance(f.get("test_run_time"), (int, float)) else "N/A"
 
-        row_total_time = _fmt_duration(_row_total_time(b, f, has_mr))
+        row_total_time = format_duration(_row_total_time(b, f, has_mr))
 
         # Highlight cells for metrics that breached their configured threshold
         # (config.settings.METRIC_VARIANCE_THRESHOLDS).
         delta_ncloc_html = _violation_span(_delta(b_ncloc, f_ncloc), metric_violations.get("ncloc"))
         delta_cc_html = _violation_span(_delta(b_cc, f_cc), metric_violations.get("cyclomatic_complexity"))
-        code_sim_html = _violation_span(_fmt(code_sim), metric_violations.get("code_sim"))
+        code_sim_html = _violation_span(format_value(code_sim), metric_violations.get("code_sim"))
         f_tok_html = _violation_span(
             f_tok, metric_violations.get("total_tokens") or metric_violations.get("token_efficiency")
         )
@@ -267,20 +273,20 @@ def _build_section(base: dict, followup: dict, relation_name: str | None) -> dic
                     <span class="tag">{difficulty}</span>
                     <span class="tag">{platform}</span>
                 </td>
-                <td>{b_tests}<br>{_pass_badge(b_passed)}</td>
-                <td>{f_tests}<br>{_pass_badge(f_passed)}</td>
+                <td>{b_tests}<br>{pass_badge(b_passed)}</td>
+                <td>{f_tests}<br>{pass_badge(f_passed)}</td>
                 <td>{_mr_badge(mr_holds_val, metric_violations)}<br>{_bool_badge(passes_same, "SAME", "DIFF")}</td>
-                <td>{_fmt(b_ncloc, 0)}</td>
-                <td>{_fmt(f_ncloc, 0) if f_ncloc is not None else "N/A"}</td>
+                <td>{format_value(b_ncloc, 0)}</td>
+                <td>{format_value(f_ncloc, 0) if f_ncloc is not None else "N/A"}</td>
                 <td>{delta_ncloc_html}</td>
-                <td>{_fmt(b_cc)}</td>
-                <td>{_fmt(f_cc) if f_cc is not None else "N/A"}</td>
+                <td>{format_value(b_cc)}</td>
+                <td>{format_value(f_cc) if f_cc is not None else "N/A"}</td>
                 <td>{delta_cc_html}</td>
                 <td>{code_sim_html}</td>
-                <td>{_fmt(b_mean_dist)}<br><small>±{_fmt(b_std_dist)}</small></td>
-                <td>{_fmt(f_mean_dist)}<br><small>±{_fmt(f_std_dist)}</small></td>
-                <td>{b_tok}<br><small>eff:{_fmt(b_eff, 3)}</small></td>
-                <td>{f_tok_html}<br><small>eff:{_fmt(f_eff, 3)}</small></td>
+                <td>{format_value(b_mean_dist)}<br><small>±{format_value(b_std_dist)}</small></td>
+                <td>{format_value(f_mean_dist)}<br><small>±{format_value(f_std_dist)}</small></td>
+                <td>{b_tok}<br><small>eff:{format_value(b_eff, 3)}</small></td>
+                <td>{f_tok_html}<br><small>eff:{format_value(f_eff, 3)}</small></td>
                 <td>{b_llm_t}<br><small>test:{b_test_t}</small></td>
                 <td>{f_llm_t_html}<br><small>test:{f_test_t}</small></td>
                 <td>{row_total_time}</td>
@@ -294,11 +300,11 @@ def _build_section(base: dict, followup: dict, relation_name: str | None) -> dic
                     <span class="tag">{difficulty}</span>
                     <span class="tag">{platform}</span>
                 </td>
-                <td>{b_tests}<br>{_pass_badge(b_passed)}</td>
-                <td>{_fmt(b_ncloc, 0)}</td>
-                <td>{_fmt(b_cc)}</td>
-                <td>{_fmt(b_mean_dist)}<br><small>±{_fmt(b_std_dist)}</small></td>
-                <td>{b_tok}<br><small>eff:{_fmt(b_eff, 3)}</small></td>
+                <td>{b_tests}<br>{pass_badge(b_passed)}</td>
+                <td>{format_value(b_ncloc, 0)}</td>
+                <td>{format_value(b_cc)}</td>
+                <td>{format_value(b_mean_dist)}<br><small>±{format_value(b_std_dist)}</small></td>
+                <td>{b_tok}<br><small>eff:{format_value(b_eff, 3)}</small></td>
                 <td>{b_llm_t}<br><small>test:{b_test_t}</small></td>
             </tr>"""
 
@@ -308,7 +314,6 @@ def _build_section(base: dict, followup: dict, relation_name: str | None) -> dic
 
     mr_section = ""
     followup_stat = ""
-    same_tests_stat = ""
 
     if has_mr:
         flw_pct = round(flw_passed / flw_total * 100) if flw_total else 0
@@ -341,7 +346,7 @@ def _build_section(base: dict, followup: dict, relation_name: str | None) -> dic
     total_time_stat = f"""
     <div class="stat-box">
         <div class="stat-label">Total time</div>
-        <div class="stat-value">{_fmt_duration(total_time)}</div>
+        <div class="stat-value">{format_duration(total_time)}</div>
         <div class="stat-sub">LLM calls + test execution, all rows</div>
     </div>"""
 
@@ -354,7 +359,6 @@ def _build_section(base: dict, followup: dict, relation_name: str | None) -> dic
         </div>
         {followup_stat}
         {mr_section}
-        {same_tests_stat}
         {total_time_stat}"""
 
     # ── Table headers ────────────────────────────────────────────────────────
@@ -395,7 +399,7 @@ def _build_section(base: dict, followup: dict, relation_name: str | None) -> dic
     }
 
 
-_CSS = """
+REPORT_CSS = """
   body { font-family: system-ui, sans-serif; margin: 2rem; background: #f8f9fa; color: #212529; font-size: 0.9rem; }
   h1 { font-size: 1.4rem; margin-bottom: 0.25rem; }
   .subtitle { color: #6c757d; font-size: 0.85rem; margin-bottom: 1.5rem; }
@@ -452,7 +456,7 @@ def _render_document(model_name: str, relation_name: str | None, section: dict) 
 <meta charset="UTF-8">
 <title>MT Report — {model_name}</title>
 <style>
-{_CSS}
+{REPORT_CSS}
 </style>
 </head>
 <body>
@@ -591,7 +595,7 @@ def generate_merged_html_report(
 <meta charset="UTF-8">
 <title>MT Report — {model_name}</title>
 <style>
-{_CSS}
+{REPORT_CSS}
 {_MERGED_CSS}
 </style>
 </head>
