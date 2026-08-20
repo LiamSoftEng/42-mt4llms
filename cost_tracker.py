@@ -8,6 +8,20 @@ from pathlib import Path
 from config.settings import COST_RATES_PER_MILLION, COST_TRACKING_PATH
 
 _WARNED = False
+_MODEL_CALL_COUNTS = {"main": 0, "helper": 0}
+
+
+def reset_model_call_counts() -> None:
+    for key in _MODEL_CALL_COUNTS:
+        _MODEL_CALL_COUNTS[key] = 0
+
+
+def record_model_call(kind: str) -> None:
+    _MODEL_CALL_COUNTS[kind] += 1
+
+
+def get_model_call_counts() -> dict[str, int]:
+    return dict(_MODEL_CALL_COUNTS)
 
 
 def update_costs(model_name: str, usage: dict | None) -> None:

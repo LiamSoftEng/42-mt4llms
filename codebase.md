@@ -4,7 +4,7 @@ Auto-generated from the working tree. File contents below are stored in
 4-space-indented code blocks so any literal ``` inside source is preserved.
 
 - Total files: 38
-- Total bytes: 215250
+- Total bytes: 219267
 
 ## Excluded from this document
 
@@ -521,7 +521,7 @@ File: config/run_config.py (1548 bytes)
     
     CONFIG = {
         "models": ["openai"],
-        "n": 2,
+        "n": 4,
         "after": None,
         "difficulty": ["easy"],
         "mr": [1],  # Use a list of IDs, one ID, "all", or None.
@@ -667,7 +667,7 @@ File: config/settings.py (2741 bytes)
 ## cost_tracker.py
 
 ```text
-File: cost_tracker.py (3337 bytes)
+File: cost_tracker.py (3657 bytes)
 ```
 
     from __future__ import annotations
@@ -680,6 +680,20 @@ File: cost_tracker.py (3337 bytes)
     from config.settings import COST_RATES_PER_MILLION, COST_TRACKING_PATH
     
     _WARNED = False
+    _MODEL_CALL_COUNTS = {"main": 0, "helper": 0}
+    
+    
+    def reset_model_call_counts() -> None:
+        for key in _MODEL_CALL_COUNTS:
+            _MODEL_CALL_COUNTS[key] = 0
+    
+    
+    def record_model_call(kind: str) -> None:
+        _MODEL_CALL_COUNTS[kind] += 1
+    
+    
+    def get_model_call_counts() -> dict[str, int]:
+        return dict(_MODEL_CALL_COUNTS)
     
     
     def update_costs(model_name: str, usage: dict | None) -> None:
@@ -2912,7 +2926,7 @@ File: evaluation/results_writer.py (10648 bytes)
 ## evaluation/runner.py
 
 ```text
-File: evaluation/runner.py (19126 bytes)
+File: evaluation/runner.py (19663 bytes)
 ```
 
     import json
@@ -2925,29 +2939,7 @@ File: evaluation/runner.py (19126 bytes)
     from data.loader import build_code_question, build_prompt, INSTRUCTION_PREFIX, INSTRUCTION_SUFFIX
     from evaluation.paths import build_results_path, build_repeat_path, build_repeats_dir
     from config.settings import RESULTS_DIR
-    
-    
-    def _load_base_results(model_name: str) -> dict[str, dict]:
-        base_path = build_results_path(model_name, None, None)
-        if not base_path.exists():
-            print(f"  Base results not found for MR-only run: {base_path}")
-            return {}
-        try:
-            with open(base_path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-        except (OSError, json.JSONDecodeError):
-            print(f"  Failed to read base results for MR-only run: {base_path}")
-            return {}
-        if not isinstance(data, list):
-            print(f"  Unexpected base results format (expected list): {base_path}")
-            return {}
-        return {
-            qid: entry
-            for entry in data
-            if isinstance(entry, dict)
-            and isinstance((qid := entry.get("question_id")), str)
-            and qid
-        }
+    from cost_tracker import record_model_call
     
     
     def _load_existing_results(path: Path) -> list[dict]:
@@ -3103,6 +3095,7 @@ File: evaluation/runner.py (19126 bytes)
             generated = GeneratedResponses()
             for repeat_index in range(self.prompt_repeats):
                 try:
+                    record_model_call("main")
                     response = model.generate(prompt)
                     usage = model.last_usage
                     call_time = model.last_call_time
@@ -3152,9 +3145,13 @@ File: evaluation/runner.py (19126 bytes)
                     "reported": False,
                 }
     
-                base_results = {}
-                if self.relation and self.mr_only:
-                    base_results = _load_base_results(model.model_name)
+                base_path = build_results_path(model.model_name, None, None)
+                base_entries = _load_existing_results(base_path) if self.relation else []
+                base_results = {
+                    entry["question_id"]: entry
+                    for entry in base_entries
+                    if isinstance(entry.get("question_id"), str) and entry["question_id"]
+                }
     
                 # For a plain base run (no --mr) with --repeats > 1, each repeat is
                 # also written out as its own full results file under base/repeats/,
@@ -3179,9 +3176,15 @@ File: evaluation/runner.py (19126 bytes)
     
                     # ── Source response ──────────────────────────────────────────
                     source = GeneratedResponses()
+                    base_entry = base_results.get(sample["question_id"]) if self.relation else None
+                    base_status = ""
     
-                    if not (self.relation and self.mr_only):
+                    if base_entry:
+                        base_status = "base exists"
+                    else:
                         source = self._generate_responses(model, prompt, token_totals)
+                        if self.relation:
+                            base_status = "base generated"
     
                     response = source.primary_response
                     response_samples = source.responses
@@ -3190,17 +3193,50 @@ File: evaluation/runner.py (19126 bytes)
                     llm_call_time = source.primary_call_time
                     finish_reason = source.primary_finish_reason
     
-                    if self.relation and self.mr_only and base_results:
-                        base_entry = base_results.get(sample["question_id"])
-                        if base_entry:
-                            response = base_entry.get("response", "")
-                            response_samples = base_entry.get("response_samples") or ([response] if response else [])
-                            error = base_entry.get("error", "")
-                            llm_call_time = base_entry.get("llm_call_time")
-                            finish_reason = base_entry.get("finish_reason")
+                    if base_entry:
+                        response = base_entry.get("response", "")
+                        response_samples = base_entry.get("response_samples") or ([response] if response else [])
+                        error = base_entry.get("error", "")
+                        prompt_tokens = base_entry.get("prompt_tokens")
+                        completion_tokens = base_entry.get("completion_tokens")
+                        total_tokens = base_entry.get("total_tokens")
+                        thinking_tokens = base_entry.get("thinking_tokens")
+                        token_efficiency = base_entry.get("token_efficiency")
+                        llm_call_time = base_entry.get("llm_call_time")
+                        finish_reason = base_entry.get("finish_reason")
+                    else:
+                        prompt_tokens, completion_tokens, total_tokens, thinking_tokens = _extract_usage(usage)
+                        token_efficiency = _token_efficiency(usage)
     
-                    prompt_tokens, completion_tokens, total_tokens, thinking_tokens = _extract_usage(usage)
-                    token_efficiency = _token_efficiency(usage)
+                    source_result = LLMResult(
+                        question_id=sample["question_id"],
+                        question_title=sample["question_title"],
+                        difficulty=sample["difficulty"],
+                        platform=sample["platform"],
+                        model_name=model.model_name,
+                        instruction_prefix=INSTRUCTION_PREFIX,
+                        instruction_suffix=INSTRUCTION_SUFFIX,
+                        question=question,
+                        response=response,
+                        response_samples=response_samples,
+                        public_test_cases=json.dumps(sample.get("public_test_cases", [])),
+                        private_test_cases=sample.get("private_test_cases", ""),
+                        metadata=json.dumps(sample.get("metadata", {})),
+                        error=error,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        total_tokens=total_tokens,
+                        thinking_tokens=thinking_tokens,
+                        token_efficiency=token_efficiency,
+                        llm_call_time=llm_call_time,
+                        finish_reason=finish_reason,
+                    )
+    
+                    if self.relation and not base_entry:
+                        base_entry = asdict(source_result)
+                        base_entries.append(base_entry)
+                        base_results[sample["question_id"]] = base_entry
+                        self._save_to_path(base_path, base_entries, quiet=True)
     
                     # ── Followup response ────────────────────────────────────────
                     followup_question = ""
@@ -3247,34 +3283,20 @@ File: evaluation/runner.py (19126 bytes)
                         followup_finish_reason = followup.primary_finish_reason
     
                         if self.mr_only:
-                            print(f"ok (mr-only + {self.relation.name} [{target}], repeats={self.prompt_repeats})")
+                            print(
+                                f"ok ({base_status}, mr-only + {self.relation.name} "
+                                f"[{target}], repeats={self.prompt_repeats})"
+                            )
                         else:
-                            print(f"ok (+ {self.relation.name} [{target}], repeats={self.prompt_repeats})")
+                            print(
+                                f"ok ({base_status} + {self.relation.name} "
+                                f"[{target}], repeats={self.prompt_repeats})"
+                            )
                     else:
                         print(f"ok (repeats={self.prompt_repeats})" if self.prompt_repeats > 1 else "ok")
     
-                    result = LLMResult(
-                        question_id=sample["question_id"],
-                        question_title=sample["question_title"],
-                        difficulty=sample["difficulty"],
-                        platform=sample["platform"],
-                        model_name=model.model_name,
-                        instruction_prefix=INSTRUCTION_PREFIX,
-                        instruction_suffix=INSTRUCTION_SUFFIX,
-                        question=question,
-                        response=response,
-                        response_samples=response_samples,
-                        public_test_cases=json.dumps(sample.get("public_test_cases", [])),
-                        private_test_cases=sample.get("private_test_cases", ""),
-                        metadata=json.dumps(sample.get("metadata", {})),
-                        error=error,
-                        prompt_tokens=prompt_tokens,
-                        completion_tokens=completion_tokens,
-                        total_tokens=total_tokens,
-                        thinking_tokens=thinking_tokens,
-                        token_efficiency=token_efficiency,
-                        llm_call_time=llm_call_time,
-                        finish_reason=finish_reason,
+                    result = replace(
+                        source_result,
                         relation=self.relation.name if self.relation else "",
                         followup_instruction_prefix=followup_instruction_prefix,
                         followup_instruction_suffix=followup_instruction_suffix,
@@ -3707,7 +3729,7 @@ File: llms/gemini_model.py (1834 bytes)
 ## llms/mr_helper.py
 
 ```text
-File: llms/mr_helper.py (2928 bytes)
+File: llms/mr_helper.py (2980 bytes)
 ```
 
     from openai import OpenAI
@@ -3716,7 +3738,7 @@ File: llms/mr_helper.py (2928 bytes)
     import time
     from pathlib import Path
     
-    from cost_tracker import update_costs
+    from cost_tracker import record_model_call, update_costs
     
     HELPER_LOG_PATH = Path(RESULTS_DIR) / "helper_call_log.jsonl"
     
@@ -3760,6 +3782,7 @@ File: llms/mr_helper.py (2928 bytes)
                 ],
             }
     
+            record_model_call("helper")
             try:
                 response = self.client.chat.completions.create(**request)
             except Exception as exc:
@@ -3846,13 +3869,14 @@ File: llms/openai_model.py (1068 bytes)
 ## main.py
 
 ```text
-File: main.py (5559 bytes)
+File: main.py (6020 bytes)
 ```
 
     import argparse
     import subprocess
     import sys
     
+    from cost_tracker import get_model_call_counts, reset_model_call_counts
     from data.loader import load_livecode_bench
     from evaluation.paths import build_results_path
     from evaluation.runner import PipelineRunner
@@ -3948,7 +3972,7 @@ File: main.py (5559 bytes)
         parser.add_argument(
             "--mr-only",
             action="store_true",
-            help="When used with --mr, skip the base LLM call and generate followup only",
+            help="When used with --mr, reuse shared base results and generate any missing bases",
         )
         parser.add_argument(
             "--run-tests",
@@ -3987,31 +4011,40 @@ File: main.py (5559 bytes)
         models = [MODEL_CHOICES[name]() for name in args.models]
         runs = relation_ids or [None]
         print(f"Running models: {[model.model_name for model in models]}, MRs: {relation_ids or ['base']}")
+        reset_model_call_counts()
     
-        for relation_id in runs:
-            relation = get_relation(relation_id) if relation_id is not None else None
-            runner = PipelineRunner(
-                models=models,
-                dataset=dataset,
-                relation=relation,
-                relation_id=relation_id,
-                mr_only=args.mr_only,
-                prompt_repeats=args.repeats,
-                resume=args.resume,
+        try:
+            for relation_id in runs:
+                relation = get_relation(relation_id) if relation_id is not None else None
+                runner = PipelineRunner(
+                    models=models,
+                    dataset=dataset,
+                    relation=relation,
+                    relation_id=relation_id,
+                    mr_only=args.mr_only,
+                    prompt_repeats=args.repeats,
+                    resume=args.resume,
+                )
+                runner.run()
+    
+                if args.run_tests:
+                    for model in models:
+                        relation_name = relation.name if relation else None
+                        exit_code = _run_tests(
+                            model.model_name,
+                            relation_name,
+                            relation_id,
+                            args.mr_only,
+                        )
+                        if exit_code != 0:
+                            return exit_code
+        finally:
+            call_counts = get_model_call_counts()
+            total_calls = call_counts["main"] + call_counts["helper"]
+            print(
+                f"\nModel calls (total): main={call_counts['main']}, "
+                f"helper={call_counts['helper']}, combined={total_calls}"
             )
-            runner.run()
-    
-            if args.run_tests:
-                for model in models:
-                    relation_name = relation.name if relation else None
-                    exit_code = _run_tests(
-                        model.model_name,
-                        relation_name,
-                        relation_id,
-                        args.mr_only,
-                    )
-                    if exit_code != 0:
-                        return exit_code
         return 0
     
     if __name__ == "__main__":
@@ -5657,13 +5690,17 @@ File: runtests.py (22203 bytes)
 ## tests/test_regressions.py
 
 ```text
-File: tests/test_regressions.py (8520 bytes)
+File: tests/test_regressions.py (11167 bytes)
 ```
 
+    import json
+    from pathlib import Path
+    from tempfile import TemporaryDirectory
     import unittest
     from types import SimpleNamespace
     from unittest.mock import patch
     
+    from cost_tracker import get_model_call_counts, reset_model_call_counts
     from evaluation.metric_violations import check_metric_violations
     from evaluation.metrics import _strip_comments_for_codesim, compute_code_similarity, compute_ttest_violation
     from evaluation.report import format_decimal, format_value
@@ -5789,6 +5826,60 @@ File: tests/test_regressions.py (8520 bytes)
                 {"llm_call_time", "token_efficiency", "code_sim"},
             )
     
+        def test_mr_runs_append_and_reuse_shared_base_results(self):
+            reset_model_call_counts()
+            calls = []
+    
+            def generate(prompt):
+                calls.append(prompt)
+                return f"response-{len(calls)}"
+    
+            model = SimpleNamespace(
+                model_name="test-model",
+                generate=generate,
+                last_usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                last_call_time=0.1,
+                last_finish_reason="stop",
+            )
+            samples = [
+                {
+                    "question_id": qid,
+                    "question_title": qid,
+                    "question_content": "Solve it.",
+                    "difficulty": "easy",
+                    "platform": "test",
+                }
+                for qid in ("q1", "q2")
+            ]
+    
+            with TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+    
+                def result_path(_model_name, relation_name=None, relation_id=None):
+                    if relation_name:
+                        return root / f"mr-{relation_id}.json"
+                    return root / "base.json"
+    
+                relation_1 = SimpleNamespace(name="first", target="PD", transform=lambda question: question)
+                relation_2 = SimpleNamespace(name="second", target="PD", transform=lambda question: question)
+    
+                with patch("evaluation.runner.build_results_path", side_effect=result_path), patch("builtins.print") as output:
+                    PipelineRunner([model], samples[:1], delay=0, relation=relation_1, relation_id=1).run()
+                    PipelineRunner([model], samples, delay=0, relation=relation_2, relation_id=2).run()
+    
+                base_entries = json.loads((root / "base.json").read_text(encoding="utf-8"))
+                second_mr = json.loads((root / "mr-2.json").read_text(encoding="utf-8"))
+                printed = " ".join(" ".join(map(str, call.args)) for call in output.call_args_list)
+    
+            self.assertEqual(len(calls), 5)
+            self.assertEqual(get_model_call_counts(), {"main": 5, "helper": 0})
+            self.assertEqual([entry["question_id"] for entry in base_entries], ["q1", "q2"])
+            self.assertEqual(base_entries[0]["response"], "response-1")
+            self.assertEqual(second_mr[0]["response"], "response-1")
+            self.assertEqual(second_mr[1]["response"], "response-4")
+            self.assertIn("base exists", printed)
+            self.assertIn("base generated", printed)
+    
         def test_static_metric_error_sentinels_display_as_unavailable(self):
             for sentinel in (-1, -1.0, -2, -2.0):
                 with self.subTest(sentinel=sentinel):
@@ -5799,6 +5890,7 @@ File: tests/test_regressions.py (8520 bytes)
     class ProviderMetadataTests(unittest.TestCase):
         @patch("llms.mr_helper.update_costs")
         def test_helper_usage_is_sent_to_cost_tracker(self, update_costs):
+            reset_model_call_counts()
             usage = SimpleNamespace(prompt_tokens=10, completion_tokens=4, total_tokens=14)
             response = SimpleNamespace(
                 choices=[SimpleNamespace(
@@ -5823,6 +5915,7 @@ File: tests/test_regressions.py (8520 bytes)
                 "helper-model",
                 {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
             )
+            self.assertEqual(get_model_call_counts(), {"main": 0, "helper": 1})
     
         @patch("llms.base.update_costs")
         def test_claude_records_timing_and_stop_reason(self, _update_costs):

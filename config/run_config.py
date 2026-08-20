@@ -12,7 +12,7 @@ from pathlib import Path
 
 CONFIG = {
     "models": ["openai"],
-    "n": 2,
+    "n": 4,
     "after": None,
     "difficulty": ["easy"],
     "mr": [1],  # Use a list of IDs, one ID, "all", or None.

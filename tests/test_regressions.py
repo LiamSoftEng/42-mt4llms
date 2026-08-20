@@ -1,7 +1,11 @@
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from cost_tracker import get_model_call_counts, reset_model_call_counts
 from evaluation.metric_violations import check_metric_violations
 from evaluation.metrics import _strip_comments_for_codesim, compute_code_similarity, compute_ttest_violation
 from evaluation.report import format_decimal, format_value
@@ -127,6 +131,60 @@ class MetricRegressionTests(unittest.TestCase):
             {"llm_call_time", "token_efficiency", "code_sim"},
         )
 
+    def test_mr_runs_append_and_reuse_shared_base_results(self):
+        reset_model_call_counts()
+        calls = []
+
+        def generate(prompt):
+            calls.append(prompt)
+            return f"response-{len(calls)}"
+
+        model = SimpleNamespace(
+            model_name="test-model",
+            generate=generate,
+            last_usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            last_call_time=0.1,
+            last_finish_reason="stop",
+        )
+        samples = [
+            {
+                "question_id": qid,
+                "question_title": qid,
+                "question_content": "Solve it.",
+                "difficulty": "easy",
+                "platform": "test",
+            }
+            for qid in ("q1", "q2")
+        ]
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            def result_path(_model_name, relation_name=None, relation_id=None):
+                if relation_name:
+                    return root / f"mr-{relation_id}.json"
+                return root / "base.json"
+
+            relation_1 = SimpleNamespace(name="first", target="PD", transform=lambda question: question)
+            relation_2 = SimpleNamespace(name="second", target="PD", transform=lambda question: question)
+
+            with patch("evaluation.runner.build_results_path", side_effect=result_path), patch("builtins.print") as output:
+                PipelineRunner([model], samples[:1], delay=0, relation=relation_1, relation_id=1).run()
+                PipelineRunner([model], samples, delay=0, relation=relation_2, relation_id=2).run()
+
+            base_entries = json.loads((root / "base.json").read_text(encoding="utf-8"))
+            second_mr = json.loads((root / "mr-2.json").read_text(encoding="utf-8"))
+            printed = " ".join(" ".join(map(str, call.args)) for call in output.call_args_list)
+
+        self.assertEqual(len(calls), 5)
+        self.assertEqual(get_model_call_counts(), {"main": 5, "helper": 0})
+        self.assertEqual([entry["question_id"] for entry in base_entries], ["q1", "q2"])
+        self.assertEqual(base_entries[0]["response"], "response-1")
+        self.assertEqual(second_mr[0]["response"], "response-1")
+        self.assertEqual(second_mr[1]["response"], "response-4")
+        self.assertIn("base exists", printed)
+        self.assertIn("base generated", printed)
+
     def test_static_metric_error_sentinels_display_as_unavailable(self):
         for sentinel in (-1, -1.0, -2, -2.0):
             with self.subTest(sentinel=sentinel):
@@ -137,6 +195,7 @@ class MetricRegressionTests(unittest.TestCase):
 class ProviderMetadataTests(unittest.TestCase):
     @patch("llms.mr_helper.update_costs")
     def test_helper_usage_is_sent_to_cost_tracker(self, update_costs):
+        reset_model_call_counts()
         usage = SimpleNamespace(prompt_tokens=10, completion_tokens=4, total_tokens=14)
         response = SimpleNamespace(
             choices=[SimpleNamespace(
@@ -161,6 +220,7 @@ class ProviderMetadataTests(unittest.TestCase):
             "helper-model",
             {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
         )
+        self.assertEqual(get_model_call_counts(), {"main": 0, "helper": 1})
 
     @patch("llms.base.update_costs")
     def test_claude_records_timing_and_stop_reason(self, _update_costs):

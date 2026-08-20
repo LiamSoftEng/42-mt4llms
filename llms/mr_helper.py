@@ -4,7 +4,7 @@ import json
 import time
 from pathlib import Path
 
-from cost_tracker import update_costs
+from cost_tracker import record_model_call, update_costs
 
 HELPER_LOG_PATH = Path(RESULTS_DIR) / "helper_call_log.jsonl"
 
@@ -48,6 +48,7 @@ class MRHelper:
             ],
         }
 
+        record_model_call("helper")
         try:
             response = self.client.chat.completions.create(**request)
         except Exception as exc:

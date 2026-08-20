@@ -2,6 +2,7 @@ import argparse
 import subprocess
 import sys
 
+from cost_tracker import get_model_call_counts, reset_model_call_counts
 from data.loader import load_livecode_bench
 from evaluation.paths import build_results_path
 from evaluation.runner import PipelineRunner
@@ -97,7 +98,7 @@ def parse_args():
     parser.add_argument(
         "--mr-only",
         action="store_true",
-        help="When used with --mr, skip the base LLM call and generate followup only",
+        help="When used with --mr, reuse shared base results and generate any missing bases",
     )
     parser.add_argument(
         "--run-tests",
@@ -136,31 +137,40 @@ def main() -> int:
     models = [MODEL_CHOICES[name]() for name in args.models]
     runs = relation_ids or [None]
     print(f"Running models: {[model.model_name for model in models]}, MRs: {relation_ids or ['base']}")
+    reset_model_call_counts()
 
-    for relation_id in runs:
-        relation = get_relation(relation_id) if relation_id is not None else None
-        runner = PipelineRunner(
-            models=models,
-            dataset=dataset,
-            relation=relation,
-            relation_id=relation_id,
-            mr_only=args.mr_only,
-            prompt_repeats=args.repeats,
-            resume=args.resume,
+    try:
+        for relation_id in runs:
+            relation = get_relation(relation_id) if relation_id is not None else None
+            runner = PipelineRunner(
+                models=models,
+                dataset=dataset,
+                relation=relation,
+                relation_id=relation_id,
+                mr_only=args.mr_only,
+                prompt_repeats=args.repeats,
+                resume=args.resume,
+            )
+            runner.run()
+
+            if args.run_tests:
+                for model in models:
+                    relation_name = relation.name if relation else None
+                    exit_code = _run_tests(
+                        model.model_name,
+                        relation_name,
+                        relation_id,
+                        args.mr_only,
+                    )
+                    if exit_code != 0:
+                        return exit_code
+    finally:
+        call_counts = get_model_call_counts()
+        total_calls = call_counts["main"] + call_counts["helper"]
+        print(
+            f"\nModel calls (total): main={call_counts['main']}, "
+            f"helper={call_counts['helper']}, combined={total_calls}"
         )
-        runner.run()
-
-        if args.run_tests:
-            for model in models:
-                relation_name = relation.name if relation else None
-                exit_code = _run_tests(
-                    model.model_name,
-                    relation_name,
-                    relation_id,
-                    args.mr_only,
-                )
-                if exit_code != 0:
-                    return exit_code
     return 0
 
 if __name__ == "__main__":
