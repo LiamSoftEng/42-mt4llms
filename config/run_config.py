@@ -15,7 +15,7 @@ CONFIG = {
     "n": 2,
     "after": None,
     "difficulty": ["easy"],
-    "mr": [3, 4, 5],  # Use a list of IDs, one ID, "all", or None.
+    "mr": [1],  # Use a list of IDs, one ID, "all", or None.
     "mr_only": False,
     "run_tests": True,
     "repeats": 1,

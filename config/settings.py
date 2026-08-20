@@ -52,14 +52,23 @@ COST_RATES_PER_MILLION = {
     GEMINI_MODEL: {"prompt": 0.0, "completion": 0.0},
 }
 
-METRIC_VARIANCE_THRESHOLDS = {
-    "ncloc": 5,
-    "cyclomatic_complexity": 2.0,
-    "llm_call_time": 10.0,
-    "total_tokens": 500,
-    "token_efficiency": 0.5,
-    "code_sim": 0.85,  # minimum allowed value, not a delta
-}
+# ---------------------------------------------------------------------------
+# Metamorphic-relation violation detection (per-question t-test baseline)
+# ---------------------------------------------------------------------------
+# Paths to repeat-only (no-transformation) run folders, used as a
+# per-question baseline distribution for t-test-based violation detection.
+# Each entry is a directory containing repeat-*.json files (same format
+# PipelineRunner writes under base/repeats/); every file contributes one
+# independent sample per question. Directories may cover disjoint question
+# sets (here, split by difficulty) — merged by question_id when building
+# the baseline. See evaluation.metrics.load_repeat_baseline.
+REPEAT_BASELINE_DIRS = [
+    "results/gpt-5-6-sol/base/repeats1_hard/repeats",
+    "results/gpt-5-6-sol/base/repeats2_medium/repeats",
+    "results/gpt-5-6-sol/base/repeats3_easy/repeats",
+]
 
-def get_metric_threshold(metric_name: str) -> float | None:
-    return METRIC_VARIANCE_THRESHOLDS.get(metric_name)
+# Significance level for the one-sample t-test in
+# evaluation.metrics.compute_ttest_violation. A followup metric value is
+# flagged as a violation when its p-value is below this.
+TTEST_ALPHA = 0.05

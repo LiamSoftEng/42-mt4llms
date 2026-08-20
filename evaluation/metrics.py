@@ -168,6 +168,23 @@ def compute_pairwise_code_variability(codes: list[str | None]) -> dict:
     }
 
 
+def compute_pairwise_similarity_list(codes: list[str | None]) -> list[float]:
+    """
+    Raw list of pairwise cosine similarities among valid code samples, one
+    entry per unique pair. compute_pairwise_code_variability() only returns
+    the aggregated mean/std of these values — this exists because the t-test
+    baseline for code_sim needs the individual pairwise values themselves,
+    not a summary.
+    """
+    valid_codes = [c for c in codes if c]
+    similarities = []
+    for code_a, code_b in combinations(valid_codes, 2):
+        similarity = compute_code_similarity(code_a, code_b)
+        if similarity is not None:
+            similarities.append(float(similarity))
+    return similarities
+
+
 # ---------------------------------------------------------------------------
 # Static code metrics
 # ---------------------------------------------------------------------------
@@ -327,3 +344,134 @@ def compute_token_efficiency(usage: dict | None) -> float | None:
     if not thinking or not completion:
         return None
     return round(completion / thinking, 6)
+
+
+# ---------------------------------------------------------------------------
+# Repeat baseline / t-test violation detection
+# ---------------------------------------------------------------------------
+
+@lru_cache(maxsize=1)
+def load_repeat_baseline() -> dict[str, dict[str, tuple[float, ...]]]:
+    """
+    Build {question_id: {metric_name: (values...)}} from the repeat-only
+    runs listed in config.settings.REPEAT_BASELINE_DIRS. Each directory is
+    scanned for repeat-*.json files; every file contributes one independent
+    sample per question. Directories may cover disjoint question sets (here,
+    split by difficulty: hard/medium/easy) — merged by question_id across
+    all directories.
+
+    ncloc/cyclomatic_complexity are computed fresh from each entry's response
+    code (never stored anywhere). llm_call_time/total_tokens/token_efficiency
+    are read directly since those already exist per-entry.
+
+    code_sim is a special case: instead of one value per file, its baseline
+    is the full list of pairwise CodeT5 similarities between every pair of
+    extracted code samples for that question across all repeat files — i.e.
+    "how similar do two independent generations of this question tend to
+    be," which the source-vs-followup code_sim score gets tested against.
+
+    Cached: computed once per process, since it re-extracts code, recomputes
+    NCLOC/CC, and runs embeddings for every repeat file on first access —
+    with three difficulty folders this can take a while the first time it's
+    called; subsequent calls in the same process are free.
+    """
+    import json
+    from pathlib import Path
+    from config.settings import REPEAT_BASELINE_DIRS
+
+    metric_keys = ("ncloc", "cyclomatic_complexity", "llm_call_time", "total_tokens", "token_efficiency")
+    baseline: dict[str, dict[str, list[float]]] = {}
+    codes_by_question: dict[str, list[str | None]] = {}
+
+    for dir_path in REPEAT_BASELINE_DIRS:
+        for file_path in sorted(Path(dir_path).glob("repeat-*.json")):
+            try:
+                with open(file_path, encoding="utf-8") as f:
+                    entries = json.load(f)
+            except (OSError, json.JSONDecodeError):
+                continue
+            if not isinstance(entries, list):
+                continue
+
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                qid = entry.get("question_id")
+                if not qid:
+                    continue
+
+                q_metrics = baseline.setdefault(qid, {k: [] for k in metric_keys})
+                codes_by_question.setdefault(qid, [])
+
+                code = extract_code(entry.get("response") or "")
+                codes_by_question[qid].append(code)
+
+                code_metrics = compute_metrics(code)
+                if code_metrics["ncloc"] not in (-1, -2):
+                    q_metrics["ncloc"].append(code_metrics["ncloc"])
+                if code_metrics["cyclomatic_complexity"] not in (-1, -2):
+                    q_metrics["cyclomatic_complexity"].append(code_metrics["cyclomatic_complexity"])
+
+                llm_call_time = entry.get("llm_call_time")
+                if isinstance(llm_call_time, (int, float)):
+                    q_metrics["llm_call_time"].append(llm_call_time)
+
+                total_tokens = entry.get("total_tokens")
+                if isinstance(total_tokens, (int, float)):
+                    q_metrics["total_tokens"].append(total_tokens)
+
+                token_efficiency = entry.get("token_efficiency")
+                if isinstance(token_efficiency, (int, float)):
+                    q_metrics["token_efficiency"].append(token_efficiency)
+
+    result: dict[str, dict[str, tuple[float, ...]]] = {}
+    for qid, metrics_dict in baseline.items():
+        entry_out = {k: tuple(v) for k, v in metrics_dict.items()}
+        entry_out["code_sim"] = tuple(compute_pairwise_similarity_list(codes_by_question.get(qid, [])))
+        result[qid] = entry_out
+
+    return result
+
+
+def compute_ttest_violation(
+    baseline_samples: list[float],
+    followup_value,
+    alpha: float = 0.05,
+    alternative: str = "two-sided",
+) -> dict | None:
+    """
+    One-sample t-test: is followup_value consistent with the per-question
+    baseline distribution built from repeat (no-transformation) runs?
+
+    ``alternative`` uses scipy's orientation, where the repeat baseline is
+    the sample and ``followup_value`` is the hypothesised population mean:
+    ``less`` detects a follow-up above the baseline, while ``greater``
+    detects a follow-up below it.
+
+    Returns None if untestable (fewer than 2 baseline samples, or a
+    non-numeric followup value) rather than raising or false-flagging.
+    """
+    if not isinstance(followup_value, (int, float)) or isinstance(followup_value, bool):
+        return None
+    if len(baseline_samples) < 2:
+        return None
+    from scipy import stats as _stats
+    try:
+        t_stat, p_value = _stats.ttest_1samp(
+            baseline_samples,
+            popmean=followup_value,
+            alternative=alternative,
+        )
+    except Exception:
+        return None
+
+    return {
+        "n_baseline": len(baseline_samples),
+        "baseline_mean": round(mean(baseline_samples), 4),
+        "baseline_std": round(stdev(baseline_samples), 4) if len(baseline_samples) > 1 else 0.0,
+        "followup": followup_value,
+        "t_stat": round(float(t_stat), 4),
+        "p_value": round(float(p_value), 6),
+        "alternative": alternative,
+        "significant": bool(p_value < alpha),
+    }

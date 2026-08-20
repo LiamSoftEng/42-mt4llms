@@ -42,14 +42,14 @@ def _delta(a, b) -> str:
 def _mr_badge(holds: bool | None, metric_violations: dict | None = None) -> str:
     """
     Badge for the overall MR verdict. A row is VIOLATED if either the test
-    verdict diverged (holds is False) or any metric breached its configured
-    threshold (metric_violations non-empty) — even if the test verdict
-    itself still holds.
+    verdict diverged (holds is False) or any metric's t-test against its
+    per-question repeat baseline came back significant (metric_violations
+    non-empty) — even if the test verdict itself still holds.
     """
     metric_violations = metric_violations or {}
     if holds is False or metric_violations:
         names = ", ".join(metric_violations)
-        title = f' title="Metric threshold(s) breached: {names}"' if names else ""
+        title = f' title="Flagged by t-test: {names}"' if names else ""
         return f'<span class="badge violated"{title}>VIOLATED</span>'
     if holds is True:
         return '<span class="badge holds">HOLDS</span>'
@@ -58,17 +58,23 @@ def _mr_badge(holds: bool | None, metric_violations: dict | None = None) -> str:
 
 def _violation_span(text: str, detail: dict | None) -> str:
     """Wrap a cell's text in a red span when `detail` (a single entry from
-    check_metric_violations) indicates that metric breached its threshold."""
+    check_metric_violations) indicates that metric's t-test against its
+    per-question repeat baseline came back significant."""
     if not detail:
         return text
-    thr = detail.get("threshold")
-    d = detail.get("delta")
-    if d is not None and thr is not None:
-        title = f' title="&Delta;{d:+.2f} exceeds allowed threshold of {thr:g}"'
-    elif thr is not None:
-        title = f' title="below minimum threshold of {thr:g}"'
-    else:
-        title = ""
+    p = detail.get("p_value")
+    mean_b = detail.get("baseline_mean")
+    std_b = detail.get("baseline_std")
+    followup_v = detail.get("followup")
+
+    bits = []
+    if p is not None:
+        bits.append(f"p={p:.4g}")
+    if mean_b is not None and std_b is not None:
+        bits.append(f"baseline={mean_b:.3g}&plusmn;{std_b:.3g}")
+    if isinstance(followup_v, (int, float)):
+        bits.append(f"followup={followup_v:.3g}")
+    title = f' title="{"; ".join(bits)}"' if bits else ""
     return f'<span class="delta-neg"{title}>{text}</span>'
 
 
@@ -162,13 +168,15 @@ def _build_section(base: dict, followup: dict, relation_name: str | None) -> dic
     has_mr = bool(followup) and bool(relation_name)
     all_ids = list(base.keys()) or list(followup.keys())
 
-    # Per-row metric-threshold violations (config.settings.METRIC_VARIANCE_THRESHOLDS),
-    # computed once and reused below for both the aggregate stat boxes and the
-    # per-row cell highlighting, so the two never disagree on what "violated" means.
+    # Per-row metric violations, computed once and reused below for both the
+    # aggregate stat boxes and the per-row cell highlighting, so the two
+    # never disagree on what "violated" means. Each row is checked via a
+    # one-sample t-test against that question's repeat-run baseline (see
+    # evaluation.metric_violations.check_metric_violations).
     row_metric_violations: dict[str, dict] = {}
     if has_mr:
         for qid in all_ids:
-            mv = check_metric_violations(base.get(qid, {}), followup.get(qid, {}))
+            mv = check_metric_violations(qid, followup.get(qid, {}))
             if mv:
                 row_metric_violations[qid] = mv
 
@@ -184,7 +192,7 @@ def _build_section(base: dict, followup: dict, relation_name: str | None) -> dic
     flw_extractable = sum(1 for r in followup.values() if r.get("extractable_code"))
 
     # A row now counts as holding only if the test verdict held AND no metric
-    # breached its threshold — previously this only looked at mr_holds, so
+    # was flagged by its t-test — previously this only looked at mr_holds, so
     # metric-only violations were silently counted as "holds".
     mr_holds = sum(
         1 for qid in all_ids
@@ -254,8 +262,8 @@ def _build_section(base: dict, followup: dict, relation_name: str | None) -> dic
 
         row_total_time = format_duration(_row_total_time(b, f, has_mr))
 
-        # Highlight cells for metrics that breached their configured threshold
-        # (config.settings.METRIC_VARIANCE_THRESHOLDS).
+        # Highlight cells for metrics whose t-test against the repeat baseline
+        # came back significant (config.settings.TTEST_ALPHA).
         delta_ncloc_html = _violation_span(_delta(b_ncloc, f_ncloc), metric_violations.get("ncloc"))
         delta_cc_html = _violation_span(_delta(b_cc, f_cc), metric_violations.get("cyclomatic_complexity"))
         code_sim_html = _violation_span(format_value(code_sim), metric_violations.get("code_sim"))
@@ -335,7 +343,7 @@ def _build_section(base: dict, followup: dict, relation_name: str | None) -> dic
             <div class="stat-label">MR [{relation_name}]</div>
             <div class="stat-value">{hold_pct}% hold rate</div>
             <div class="stat-sub">{mr_holds} holds / {mr_violated} violations / {mr_total} total</div>
-            <div class="stat-sub">Of which {metric_violated_count} breached a metric threshold</div>
+            <div class="stat-sub">Of which {metric_violated_count} flagged by a metric t-test</div>
         </div>
         <div class="stat-box">
             <div class="stat-label">Passes same tests</div>

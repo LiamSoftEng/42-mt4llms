@@ -173,7 +173,8 @@ def write_violations_log(model_name: str, results_dir: str) -> Path:
     """
     Scan each per-MR followup results file for violated metamorphic relations,
     where a violation is either a failed test-verdict match (mr_holds == False)
-    or a metric delta exceeding its configured threshold (METRIC_VARIANCE_THRESHOLDS).
+    or a metric flagged by its one-sample t-test against the per-question
+    repeat baseline (see evaluation.metric_violations.check_metric_violations).
     Source-side metrics are joined from the base running ledger by question_id.
 
     The log is JSONL (one object per line), matching the helper_call_log
@@ -217,7 +218,7 @@ def write_violations_log(model_name: str, results_dir: str) -> Path:
                 b = base_by_qid.get(qid, {})
 
                 test_violation = row.get("mr_holds") is False
-                metric_violations = check_metric_violations(b, row)
+                metric_violations = check_metric_violations(qid, row)
 
                 if not test_violation and not metric_violations:
                     continue

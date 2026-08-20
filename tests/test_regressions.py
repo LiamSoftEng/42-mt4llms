@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from evaluation.metric_violations import check_metric_violations
+from evaluation.metrics import compute_ttest_violation
 from evaluation.report import format_decimal, format_value
 from evaluation.runner import PipelineRunner
 from llms.claude_model import ClaudeModel
@@ -34,14 +35,78 @@ class MRRegressionTests(unittest.TestCase):
 
 
 class MetricRegressionTests(unittest.TestCase):
-    def test_static_metric_error_sentinels_are_not_compared(self):
+    @patch("evaluation.metric_violations.load_repeat_baseline")
+    def test_static_metric_error_sentinels_are_not_compared(self, load_baseline):
+        load_baseline.return_value = {
+            "question": {
+                "ncloc": (10, 11, 12),
+                "cyclomatic_complexity": (2.0, 2.5, 3.0),
+            }
+        }
         violations = check_metric_violations(
+            "question",
             {"ncloc": -1, "cyclomatic_complexity": -2},
-            {"ncloc": 20, "cyclomatic_complexity": 5.0},
         )
 
         self.assertNotIn("ncloc", violations)
         self.assertNotIn("cyclomatic_complexity", violations)
+
+    def test_one_sided_ttests_only_flag_the_configured_direction(self):
+        baseline = [9, 10, 10, 10, 11]
+
+        above = compute_ttest_violation(baseline, 12, alternative="less")
+        below = compute_ttest_violation(baseline, 8, alternative="less")
+        self.assertTrue(above["significant"])
+        self.assertFalse(below["significant"])
+
+        below = compute_ttest_violation(baseline, 8, alternative="greater")
+        above = compute_ttest_violation(baseline, 12, alternative="greater")
+        self.assertTrue(below["significant"])
+        self.assertFalse(above["significant"])
+
+    @patch("evaluation.metric_violations.load_repeat_baseline")
+    def test_metric_tests_use_mixed_directions(self, load_baseline):
+        samples = (9, 10, 10, 10, 11)
+        load_baseline.return_value = {
+            "question": {
+                "ncloc": samples,
+                "cyclomatic_complexity": samples,
+                "llm_call_time": samples,
+                "total_tokens": samples,
+                "token_efficiency": samples,
+                "code_sim": samples,
+            }
+        }
+
+        violations = check_metric_violations(
+            "question",
+            {
+                "ncloc": 8,
+                "cyclomatic_complexity": 8,
+                "llm_call_time": 8,
+                "total_tokens": 8,
+                "token_efficiency": 12,
+                "code_sim": 12,
+            },
+        )
+
+        self.assertEqual(
+            set(violations),
+            {"ncloc", "cyclomatic_complexity", "total_tokens"},
+        )
+
+        violations = check_metric_violations(
+            "question",
+            {
+                "llm_call_time": 12,
+                "token_efficiency": 8,
+                "code_sim": 8,
+            },
+        )
+        self.assertEqual(
+            set(violations),
+            {"llm_call_time", "token_efficiency", "code_sim"},
+        )
 
     def test_static_metric_error_sentinels_display_as_unavailable(self):
         for sentinel in (-1, -1.0, -2, -2.0):
