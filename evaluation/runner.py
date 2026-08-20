@@ -6,7 +6,6 @@ from pathlib import Path
 
 from llms.base import BaseLLM
 from data.loader import build_code_question, build_prompt, INSTRUCTION_PREFIX, INSTRUCTION_SUFFIX
-from evaluation.executor import extract_code
 from evaluation.paths import build_results_path, build_repeat_path, build_repeats_dir
 from config.settings import RESULTS_DIR
 
@@ -49,19 +48,8 @@ def _load_existing_results(path: Path) -> list[dict]:
     return [entry for entry in data if isinstance(entry, dict)]
 
 
-def _entry_has_code(entry: dict, response_key: str) -> bool:
-    response = entry.get(response_key, "")
-    return isinstance(response, str) and extract_code(response) is not None
-
-
 def _entry_complete_for_resume(entry: dict, relation=None, mr_only: bool = False) -> bool:
-    if not isinstance(entry.get("question_id"), str) or not entry["question_id"]:
-        return False
-    if mr_only:
-        return _entry_has_code(entry, "followup_response")
-    if relation:
-        return _entry_has_code(entry, "response") and _entry_has_code(entry, "followup_response")
-    return _entry_has_code(entry, "response")
+    return isinstance(entry.get("question_id"), str) and bool(entry["question_id"])
 
 
 def _extract_usage(usage: dict | None) -> tuple[int | None, int | None, int | None, int | None]:
@@ -237,7 +225,7 @@ class PipelineRunner:
                 if _entry_complete_for_resume(entry, self.relation, self.mr_only)
             }
             if self.resume and completed_ids:
-                print(f"  Resume enabled: loaded {len(completed_ids)} completed code results from {out_path}")
+                print(f"  Resume enabled: loaded {len(completed_ids)} existing results from {out_path}")
 
             token_totals: dict = {
                 "prompt_tokens": 0,
