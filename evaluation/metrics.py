@@ -3,10 +3,12 @@ Code metrics computed on extracted code blocks using radon.
 """
 
 from functools import lru_cache
+import io
 from itertools import combinations
 import os
 from statistics import mean, stdev
 import textwrap
+import tokenize
 import warnings
 
 from radon.raw import analyze
@@ -101,6 +103,24 @@ def _encode_with_transformers(code_a: str, code_b: str):
 # Similarity / distance
 # ---------------------------------------------------------------------------
 
+def _strip_comments_for_codesim(code: str) -> str:
+    """Remove Python comments without changing strings or stored code."""
+    try:
+        filtered = []
+        skip_comment_linebreak = False
+        for token in tokenize.generate_tokens(io.StringIO(code).readline):
+            if token.type == tokenize.COMMENT:
+                skip_comment_linebreak = not token.line[:token.start[1]].strip()
+                continue
+            if skip_comment_linebreak and token.type in (tokenize.NL, tokenize.NEWLINE):
+                skip_comment_linebreak = False
+                continue
+            filtered.append((token.type, token.string))
+        return tokenize.untokenize(filtered)
+    except (IndentationError, tokenize.TokenError):
+        return code
+
+
 def compute_code_similarity(code_a: str | None, code_b: str | None) -> float | None:
     """
     Compute cosine similarity between two code snippets using embeddings.
@@ -109,7 +129,10 @@ def compute_code_similarity(code_a: str | None, code_b: str | None) -> float | N
     if not code_a or not code_b:
         return None
     try:
-        emb_a, emb_b = _encode_with_transformers(code_a, code_b)
+        emb_a, emb_b = _encode_with_transformers(
+            _strip_comments_for_codesim(code_a),
+            _strip_comments_for_codesim(code_b),
+        )
         import torch
         score = torch.nn.functional.cosine_similarity(emb_a, emb_b, dim=0).item()
         return float(score)

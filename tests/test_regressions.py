@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from evaluation.metric_violations import check_metric_violations
-from evaluation.metrics import compute_ttest_violation
+from evaluation.metrics import _strip_comments_for_codesim, compute_code_similarity, compute_ttest_violation
 from evaluation.report import format_decimal, format_value
 from evaluation.runner import PipelineRunner
 from llms.claude_model import ClaudeModel
@@ -35,6 +35,25 @@ class MRRegressionTests(unittest.TestCase):
 
 
 class MetricRegressionTests(unittest.TestCase):
+    @patch("evaluation.metrics._encode_with_transformers")
+    def test_codesim_removes_comments_but_preserves_hashes_in_strings(self, encode):
+        encode.side_effect = RuntimeError("stop after preprocessing")
+
+        compute_code_similarity(
+            'value = "# retained"  # removed\n',
+            "value = '# also retained'\n# removed too\n",
+        )
+
+        code_a, code_b = encode.call_args.args
+        self.assertIn('"# retained"', code_a)
+        self.assertNotIn("# removed", code_a)
+        self.assertIn("'# also retained'", code_b)
+        self.assertNotIn("# removed too", code_b)
+        self.assertEqual(
+            _strip_comments_for_codesim("value = 1\n"),
+            _strip_comments_for_codesim("# heading\nvalue = 1  # explanation\n"),
+        )
+
     @patch("evaluation.metric_violations.load_repeat_baseline")
     def test_static_metric_error_sentinels_are_not_compared(self, load_baseline):
         load_baseline.return_value = {
