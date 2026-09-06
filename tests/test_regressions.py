@@ -6,9 +6,10 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from cost_tracker import get_model_call_counts, reset_model_call_counts
+import cost_tracker
 from evaluation.metric_violations import check_metric_violations
 from evaluation.metrics import _strip_comments_for_codesim, compute_code_similarity, compute_ttest_violation
-from evaluation.report import format_decimal, format_value
+from evaluation.report import format_decimal, format_value, generate_merged_html_report
 from evaluation.runner import PipelineRunner
 from evaluation.paths import build_results_path
 import main as pipeline_main
@@ -215,7 +216,7 @@ class DifficultyRunRegressionTests(unittest.TestCase):
             difficulty=["easy", "medium", "hard"],
             mr=[1, 2],
             mr_only=False,
-            run_tests=False,
+            run_tests=True,
             repeats=1,
             resume=False,
         )
@@ -243,6 +244,8 @@ class DifficultyRunRegressionTests(unittest.TestCase):
                 side_effect=lambda relation_id: SimpleNamespace(name=f"mr-{relation_id}"),
             ),
             patch.object(pipeline_main, "PipelineRunner", FakeRunner),
+            patch.object(pipeline_main, "_run_tests", return_value=0),
+            patch.object(pipeline_main, "generate_merged_html_report") as merged_report,
             patch("builtins.print"),
         ):
             exit_code = pipeline_main.main()
@@ -264,6 +267,65 @@ class DifficultyRunRegressionTests(unittest.TestCase):
                 ("hard", 2),
             ],
         )
+        self.assertEqual(
+            [call.kwargs["difficulty"] for call in merged_report.call_args_list],
+            ["easy", "medium", "hard"],
+        )
+        self.assertTrue(
+            all(call.kwargs["relation_ids"] == [1, 2] for call in merged_report.call_args_list)
+        )
+
+    def test_merged_report_has_difficulty_summary_and_all_mrs(self):
+        base_rows = [
+            {
+                "question_id": f"q{i}",
+                "question_title": f"Question {i}",
+                "difficulty": "easy",
+                "platform": "test",
+                "passed": i == 1,
+                "extractable_code": True,
+                "tests_passed": i,
+                "tests_total": 1,
+            }
+            for i in (1, 2)
+        ]
+        followup_rows = [
+            {
+                **row,
+                "passed": True,
+                "mr_holds": True,
+                "passes_same_tests": True,
+            }
+            for row in base_rows
+        ]
+
+        with TemporaryDirectory() as temp_dir:
+            model_dir = Path(temp_dir) / "test-model" / "easy"
+            base_dir = model_dir / "base"
+            base_dir.mkdir(parents=True)
+            (base_dir / "base.results.json").write_text(json.dumps(base_rows), encoding="utf-8")
+            for mr_id, name in ((1, "first"), (2, "second")):
+                mr_dir = model_dir / f"mr-{mr_id:02d}-{name}"
+                mr_dir.mkdir()
+                (mr_dir / "followup.results.json").write_text(
+                    json.dumps(followup_rows),
+                    encoding="utf-8",
+                )
+
+            with patch("evaluation.report.check_metric_violations", return_value={}):
+                report_path = generate_merged_html_report(
+                    "test-model",
+                    temp_dir,
+                    difficulty="easy",
+                )
+            html = report_path.read_text(encoding="utf-8")
+
+        self.assertEqual(report_path.name, "all.html")
+        self.assertIn("Easy — combined report", html)
+        self.assertIn("2 MRs", html)
+        self.assertIn("2 unique questions / 4 MR evaluations", html)
+        self.assertIn("MR: first", html)
+        self.assertIn("MR: second", html)
 
 
 class ProviderMetadataTests(unittest.TestCase):
@@ -292,9 +354,77 @@ class ProviderMetadataTests(unittest.TestCase):
 
         update_costs.assert_called_once_with(
             "helper-model",
-            {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
+            {
+                "prompt_tokens": 10,
+                "completion_tokens": 4,
+                "total_tokens": 14,
+                "cached_prompt_tokens": None,
+            },
+            role="helper",
         )
         self.assertEqual(get_model_call_counts(), {"main": 0, "helper": 1})
+
+
+class CostTrackingRegressionTests(unittest.TestCase):
+    def test_reconcile_recovers_previously_unpriced_helper_usage(self):
+        old_payload = {
+            "version": 1,
+            "currency": "NZD",
+            "unit": "per_million_tokens",
+            "models": {
+                "gpt-5.6-luna": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 50,
+                    "total_tokens": 150,
+                    "cost_usd": 0.0,
+                    "missing_rate": True,
+                }
+            },
+        }
+        with TemporaryDirectory() as temp_dir:
+            cost_path = Path(temp_dir) / ".model_costs.json"
+            cost_path.write_text(json.dumps(old_payload), encoding="utf-8")
+            with patch.object(cost_tracker, "COST_TRACKING_PATH", str(cost_path)):
+                cost_tracker.reconcile_cost_file()
+            payload = json.loads(cost_path.read_text(encoding="utf-8"))
+
+        luna = payload["models"]["gpt-5.6-luna"]
+        self.assertEqual(payload["version"], 2)
+        self.assertEqual(payload["currency"], "USD")
+        self.assertNotIn("missing_rate", luna)
+        self.assertTrue(luna["recovered_previously_unpriced_cost"])
+        self.assertAlmostEqual(luna["cost_usd"], 0.00008)
+        self.assertAlmostEqual(luna["usage_by_role"]["helper"]["cost_usd"], 0.00008)
+
+    def test_costs_are_split_by_exact_model_and_role(self):
+        with TemporaryDirectory() as temp_dir:
+            cost_path = Path(temp_dir) / ".model_costs.json"
+            with patch.object(cost_tracker, "COST_TRACKING_PATH", str(cost_path)):
+                cost_tracker.reset_model_call_counts()
+                cost_tracker.update_costs(
+                    "gpt-5.6-terra",
+                    {
+                        "prompt_tokens": 100,
+                        "cached_prompt_tokens": 20,
+                        "completion_tokens": 50,
+                    },
+                )
+                cost_tracker.update_costs(
+                    "gpt-5.6-luna",
+                    {"prompt_tokens": 100, "completion_tokens": 50},
+                    role="helper",
+                )
+                payload = json.loads(cost_path.read_text(encoding="utf-8"))
+
+        terra = payload["models"]["gpt-5.6-terra"]
+        luna = payload["models"]["gpt-5.6-luna"]
+        self.assertEqual(payload["currency"], "USD")
+        self.assertAlmostEqual(terra["cost_usd"], 0.000764)
+        self.assertAlmostEqual(luna["cost_usd"], 0.00008)
+        self.assertIn("main", terra["usage_by_role"])
+        self.assertIn("helper", luna["usage_by_role"])
+        self.assertAlmostEqual(payload["totals"]["cost_usd"], 0.000844)
+        self.assertAlmostEqual(payload["totals"]["by_role"]["helper"]["cost_usd"], 0.00008)
 
     @patch("llms.base.update_costs")
     def test_claude_records_timing_and_stop_reason(self, _update_costs):

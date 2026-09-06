@@ -2,9 +2,16 @@ import argparse
 import subprocess
 import sys
 
-from cost_tracker import get_model_call_counts, reset_model_call_counts
+from cost_tracker import (
+    get_model_call_counts,
+    get_run_cost_summary,
+    reconcile_cost_file,
+    reset_model_call_counts,
+)
+from config.settings import RESULTS_DIR
 from data.loader import load_livecode_bench
 from evaluation.paths import build_results_path
+from evaluation.report import generate_merged_html_report
 from evaluation.runner import PipelineRunner
 from llms import ClaudeModel, GeminiModel, OpenAIModel
 from metamorphic.relations_list import RELATIONS
@@ -151,6 +158,7 @@ def main() -> int:
         f"MRs: {relation_ids or ['base']}"
     )
     reset_model_call_counts()
+    reconcile_cost_file()
 
     try:
         for difficulty in difficulty_runs:
@@ -185,6 +193,15 @@ def main() -> int:
                         )
                         if exit_code != 0:
                             return exit_code
+
+            if args.run_tests and relation_ids:
+                for model in models:
+                    generate_merged_html_report(
+                        model_name=model.model_name,
+                        results_dir=RESULTS_DIR,
+                        difficulty=difficulty,
+                        relation_ids=relation_ids,
+                    )
     finally:
         call_counts = get_model_call_counts()
         total_calls = call_counts["main"] + call_counts["helper"]
@@ -192,6 +209,21 @@ def main() -> int:
             f"\nModel calls (total): main={call_counts['main']}, "
             f"helper={call_counts['helper']}, combined={total_calls}"
         )
+        run_costs = get_run_cost_summary()
+        combined_cost = 0.0
+        if any(run_costs.values()):
+            print("Run cost by model and role (USD):")
+        for role in ("main", "helper"):
+            for model_name, usage in run_costs[role].items():
+                combined_cost += usage["cost_usd"]
+                missing = " (rate missing)" if usage.get("missing_rate") else ""
+                print(
+                    f"  {role}: {model_name} — "
+                    f"{usage['prompt_tokens']} input + {usage['completion_tokens']} output tokens, "
+                    f"${usage['cost_usd']:.6f}{missing}"
+                )
+        if any(run_costs.values()):
+            print(f"Run cost combined (USD): ${combined_cost:.6f}")
     return 0
 
 if __name__ == "__main__":

@@ -27,7 +27,7 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 # Model names
 MR_HELPER_MODEL = "gpt-5.6-luna"
 CLAUDE_MODEL = "claude-sonnet-4-6"
-OPENAI_MODEL = "gpt-5.6-sol"
+OPENAI_MODEL = "gpt-5.6-terra"
 GEMINI_MODEL = "gemini-2.5-flash"
 CODE_EMBEDDING_MODEL = "Salesforce/codet5p-220m"
 CODE_TOKENIZER_MODEL = "Salesforce/codet5-base"
@@ -45,10 +45,16 @@ N_SAMPLES = None  # Set to an int (e.g. 10) to limit samples during dev
 RESULTS_DIR = "results"
 COST_TRACKING_PATH = os.getenv("COST_TRACKING_PATH", os.path.join(RESULTS_DIR, ".model_costs.json"))
 
-# Cost tracking (USD per 1M tokens). Update these with current provider rates.
+# Cost tracking (USD per 1M tokens).
+# GPT-5.6 rates: https://developers.openai.com/api/docs/models
+# Keep concrete model IDs here: OPENAI_MODEL and MR_HELPER_MODEL may point at
+# different tiers, and each tier must retain its own price.
 COST_RATES_PER_MILLION = {
     CLAUDE_MODEL: {"prompt": 0.0, "completion": 0.0},
-    OPENAI_MODEL: {"prompt": 5, "completion": 30},
+    "gpt-5-nano": {"prompt": 0.05, "cached_prompt": 0.005, "completion": 0.4},
+    "gpt-5.6-sol": {"prompt": 4.0, "cached_prompt": 0.4, "completion": 20.0},
+    "gpt-5.6-terra": {"prompt": 2.0, "cached_prompt": 0.2, "completion": 12.0},
+    "gpt-5.6-luna": {"prompt": 0.2, "cached_prompt": 0.02, "completion": 1.2},
     GEMINI_MODEL: {"prompt": 0.0, "completion": 0.0},
 }
 

@@ -49,11 +49,19 @@ class BaseLLM(ABC):
         if details is not None:
             thinking_tokens = getattr(details, "reasoning_tokens", None)
 
+        prompt_details = getattr(usage, "prompt_tokens_details", None)
+        cached_prompt_tokens = (
+            getattr(prompt_details, "cached_tokens", None)
+            if prompt_details is not None
+            else None
+        )
+
         self._set_last_usage({
             "prompt_tokens": getattr(usage, "prompt_tokens", None),
             "completion_tokens": getattr(usage, "completion_tokens", None),
             "total_tokens": getattr(usage, "total_tokens", None),
             "thinking_tokens": thinking_tokens,
+            "cached_prompt_tokens": cached_prompt_tokens,
         })
 
     @abstractmethod

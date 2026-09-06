@@ -157,6 +157,15 @@ def _relation_name_from_folder(folder_name: str) -> str:
     return folder_name
 
 
+def _relation_id_from_folder(folder_name: str) -> int | None:
+    if not folder_name.startswith("mr-"):
+        return None
+    try:
+        return int(folder_name.split("-", 2)[1])
+    except (IndexError, ValueError):
+        return None
+
+
 def _build_section(base: dict, followup: dict, relation_name: str | None) -> dict:
     """
     Render the stats boxes and data table for one relation run.
@@ -404,6 +413,24 @@ def _build_section(base: dict, followup: dict, relation_name: str | None) -> dic
         "stats_html": stats_html,
         "table_headers": table_headers,
         "rows_html": rows_html,
+        "summary": {
+            "base_total": base_total,
+            "base_passed": base_passed,
+            "base_extractable": base_extractable,
+            "followup_total": flw_total,
+            "followup_passed": flw_passed,
+            "followup_extractable": flw_extractable,
+            "mr_holds": mr_holds,
+            "mr_violated": mr_violated,
+            "metric_violated": metric_violated_count,
+            "same_tests": same_tests_count,
+            "different_tests": diff_tests_count,
+            "base_time": _sum_time(base, "llm_call_time") + _sum_time(base, "test_run_time"),
+            "followup_time": (
+                _sum_time(followup, "llm_call_time")
+                + _sum_time(followup, "test_run_time")
+            ),
+        },
     }
 
 
@@ -520,6 +547,8 @@ def generate_merged_html_report(
     model_name: str,
     results_dir: str,
     out_path: Path | None = None,
+    difficulty: str | None = None,
+    relation_ids: list[int] | None = None,
 ) -> Path:
     """
     Build a single merged report (results/<model>/all.html) with one clearly
@@ -534,6 +563,8 @@ def generate_merged_html_report(
     report bodies and left the merged page with no section markers at all.
     """
     model_dir = Path(results_dir) / safe_name(model_name)
+    if difficulty:
+        model_dir = model_dir / difficulty.lower()
     out_path = out_path or model_dir / "all.html"
 
     base_results = model_dir / "base" / "base.results.json"
@@ -551,6 +582,8 @@ def generate_merged_html_report(
 
     if model_dir.exists():
         for folder in sorted(p for p in model_dir.iterdir() if p.is_dir() and p.name.startswith("mr-")):
+            if relation_ids is not None and _relation_id_from_folder(folder.name) not in relation_ids:
+                continue
             flw_results = folder / "followup.results.json"
             if not flw_results.exists():
                 continue
@@ -570,6 +603,60 @@ def generate_merged_html_report(
     if not sections:
         print(f"  No results found to merge for {model_name}")
         return out_path
+
+    mr_summaries = [section["summary"] for anchor, _, section in sections if anchor != "base"]
+    base_summary = next(
+        (section["summary"] for anchor, _, section in sections if anchor == "base"),
+        {},
+    )
+
+    def _sum_summary(key: str) -> int | float:
+        return sum(summary.get(key, 0) for summary in mr_summaries)
+
+    base_total = base_summary.get("base_total", 0)
+    base_passed = base_summary.get("base_passed", 0)
+    followup_total = _sum_summary("followup_total")
+    followup_passed = _sum_summary("followup_passed")
+    mr_holds = _sum_summary("mr_holds")
+    mr_violated = _sum_summary("mr_violated")
+    mr_total = mr_holds + mr_violated
+    metric_violated = _sum_summary("metric_violated")
+    total_time = base_summary.get("base_time", 0) + _sum_summary("followup_time")
+
+    def _pct(numerator: int | float, denominator: int | float) -> int:
+        return round(numerator / denominator * 100) if denominator else 0
+
+    difficulty_label = difficulty.title() if difficulty else "All difficulties"
+    summary_html = f"""
+<div class="subtitle">{difficulty_label} — combined report</div>
+<div class="stats summary-stats">
+  <div class="stat-box">
+    <div class="stat-label">Coverage</div>
+    <div class="stat-value">{len(mr_summaries)} MRs</div>
+    <div class="stat-sub">{base_total} unique questions / {followup_total} MR evaluations</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-label">Base pass rate</div>
+    <div class="stat-value">{_pct(base_passed, base_total)}%</div>
+    <div class="stat-sub">{base_passed} passed / {base_total - base_passed} failed</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-label">All followups pass rate</div>
+    <div class="stat-value">{_pct(followup_passed, followup_total)}%</div>
+    <div class="stat-sub">{followup_passed} passed / {followup_total - followup_passed} failed</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-label">Overall MR hold rate</div>
+    <div class="stat-value">{_pct(mr_holds, mr_total)}%</div>
+    <div class="stat-sub">{mr_holds} holds / {mr_violated} violations</div>
+    <div class="stat-sub">{metric_violated} flagged by a metric t-test</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-label">Total time</div>
+    <div class="stat-value">{format_duration(total_time)}</div>
+    <div class="stat-sub">Base once + all MR followups and tests</div>
+  </div>
+</div>"""
 
     # ── Table of contents ────────────────────────────────────────────────────
     toc_items = "\n".join(
@@ -609,6 +696,7 @@ def generate_merged_html_report(
 </head>
 <body>
 <h1>MT Report — {model_name}</h1>
+{summary_html}
 {toc_html}
 {content}
 </body>

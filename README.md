@@ -295,6 +295,7 @@ When `--write-outputs` is used, additional files are created:
 
 ```text
 results/<model>/<difficulty>/
+|-- all.html                 Combined summary generated after every MR finishes
 |-- base/
 |   |-- base.json
 |   |-- base.html
@@ -318,6 +319,10 @@ results/<model>/<difficulty>/
 ```
 
 Test logs default to the input result filename with `.tests.log` appended. CSV output is written only when `--csv` is supplied.
+When both MRs and `--run-tests` are enabled, `all.html` is generated after all
+MRs for that difficulty finish. It contains top-level aggregate stat boxes and
+the complete base/MR report sections in the same format as the individual HTML
+reports.
 
 ## Metamorphic Relations
 
@@ -384,3 +389,16 @@ run_all_mrs.py           Runs all registered MRs
 - Private tests are decoded from the LiveCodeBench data at evaluation time.
 - The embedding model is downloaded on first variability analysis.
 - Update cost rates in `config/settings.py` when provider pricing changes.
+
+## Cost tracking
+
+`results/.model_costs.json` records usage under each exact model ID and splits
+each model into `main` and `helper` roles. It also includes combined totals,
+cached-input tokens, the last rates applied, and all monetary values in USD.
+The console prints the main, helper, and combined cost for the current run.
+
+Configured GPT-5.6 rates are kept separately for `gpt-5.6-sol`,
+`gpt-5.6-terra`, and `gpt-5.6-luna`. On the next pipeline start, old ledger
+entries are upgraded without repricing costs that were already calculated;
+entries explicitly marked `missing_rate` are recovered using their newly
+configured exact-model rate.

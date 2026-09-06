@@ -63,15 +63,21 @@ class MRHelper:
 
         usage = getattr(response, "usage", None)
         if usage is not None:
+            prompt_details = getattr(usage, "prompt_tokens_details", None)
             self._last_usage = {
                 "prompt_tokens": getattr(usage, "prompt_tokens", None),
                 "completion_tokens": getattr(usage, "completion_tokens", None),
                 "total_tokens": getattr(usage, "total_tokens", None),
+                "cached_prompt_tokens": (
+                    getattr(prompt_details, "cached_tokens", None)
+                    if prompt_details is not None
+                    else None
+                ),
             }
         else:
             self._last_usage = None
 
-        update_costs(self.model_name, self._last_usage)
+        update_costs(self.model_name, self._last_usage, role="helper")
         result = (choice.message.content or "").strip()
         _log_helper_call(system, user, result, self._last_finish_reason, self._last_usage)
         return result
