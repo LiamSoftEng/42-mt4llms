@@ -12,10 +12,11 @@ from pathlib import Path
 
 CONFIG = {
     "models": ["openai"],
-    "n": 4,
+    "n": 20,
     "after": None,
-    "difficulty": ["easy"],
-    "mr": [1],  # Use a list of IDs, one ID, "all", or None.
+    # Add more values (for example ["easy", "medium", "hard"]); n applies to each one.
+    "difficulty": ["hard"],
+    "mr": [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19],  # Use a list of IDs, one ID, "all", or None.
     "mr_only": False,
     "run_tests": True,
     "repeats": 1,

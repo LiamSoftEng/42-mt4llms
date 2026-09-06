@@ -10,6 +10,8 @@ from evaluation.metric_violations import check_metric_violations
 from evaluation.metrics import _strip_comments_for_codesim, compute_code_similarity, compute_ttest_violation
 from evaluation.report import format_decimal, format_value
 from evaluation.runner import PipelineRunner
+from evaluation.paths import build_results_path
+import main as pipeline_main
 from llms.claude_model import ClaudeModel
 from llms.gemini_model import GeminiModel
 from llms.mr_helper import MRHelper
@@ -160,7 +162,7 @@ class MetricRegressionTests(unittest.TestCase):
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
 
-            def result_path(_model_name, relation_name=None, relation_id=None):
+            def result_path(_model_name, relation_name=None, relation_id=None, difficulty=None):
                 if relation_name:
                     return root / f"mr-{relation_id}.json"
                 return root / "base.json"
@@ -190,6 +192,78 @@ class MetricRegressionTests(unittest.TestCase):
             with self.subTest(sentinel=sentinel):
                 self.assertEqual(format_value(sentinel), "N/A")
                 self.assertEqual(format_decimal(sentinel), "N/A")
+
+
+class DifficultyRunRegressionTests(unittest.TestCase):
+    def test_result_paths_are_separate_for_each_difficulty(self):
+        with TemporaryDirectory() as temp_dir, patch("evaluation.paths.RESULTS_DIR", temp_dir):
+            easy = build_results_path("test-model", "relation", 1, "easy")
+            medium = build_results_path("test-model", "relation", 1, "medium")
+            hard = build_results_path("test-model", "relation", 1, "hard")
+
+        self.assertNotEqual(easy, medium)
+        self.assertNotEqual(medium, hard)
+        self.assertEqual(easy.parts[-3:], ("easy", "mr-01-relation", "mr-01-relation.json"))
+        self.assertEqual(medium.parts[-3:], ("medium", "mr-01-relation", "mr-01-relation.json"))
+        self.assertEqual(hard.parts[-3:], ("hard", "mr-01-relation", "mr-01-relation.json"))
+
+    def test_main_runs_each_difficulty_with_each_mr(self):
+        args = SimpleNamespace(
+            models=["openai"],
+            n=20,
+            after=None,
+            difficulty=["easy", "medium", "hard"],
+            mr=[1, 2],
+            mr_only=False,
+            run_tests=False,
+            repeats=1,
+            resume=False,
+        )
+        load_calls = []
+        runner_calls = []
+
+        def load_dataset(**kwargs):
+            load_calls.append(kwargs)
+            return [kwargs["difficulty"]]
+
+        class FakeRunner:
+            def __init__(self, **kwargs):
+                runner_calls.append(kwargs)
+
+            def run(self):
+                return None
+
+        with (
+            patch.object(pipeline_main, "parse_args", return_value=args),
+            patch.object(pipeline_main, "MODEL_CHOICES", {"openai": lambda: SimpleNamespace(model_name="model")}),
+            patch.object(pipeline_main, "load_livecode_bench", side_effect=load_dataset),
+            patch.object(
+                pipeline_main,
+                "get_relation",
+                side_effect=lambda relation_id: SimpleNamespace(name=f"mr-{relation_id}"),
+            ),
+            patch.object(pipeline_main, "PipelineRunner", FakeRunner),
+            patch("builtins.print"),
+        ):
+            exit_code = pipeline_main.main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            [call["difficulty"] for call in load_calls],
+            ["easy", "medium", "hard"],
+        )
+        self.assertTrue(all(call["n_samples"] == 20 for call in load_calls))
+        self.assertEqual(
+            [(call["difficulty"], call["relation_id"]) for call in runner_calls],
+            [
+                ("easy", 1),
+                ("easy", 2),
+                ("medium", 1),
+                ("medium", 2),
+                ("hard", 1),
+                ("hard", 2),
+            ],
+        )
 
 
 class ProviderMetadataTests(unittest.TestCase):

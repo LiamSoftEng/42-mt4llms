@@ -25,9 +25,9 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 # Model names
-MR_HELPER_MODEL = "gpt-5-nano"
+MR_HELPER_MODEL = "gpt-5.6-luna"
 CLAUDE_MODEL = "claude-sonnet-4-6"
-OPENAI_MODEL = "gpt-5-nano"
+OPENAI_MODEL = "gpt-5.6-sol"
 GEMINI_MODEL = "gemini-2.5-flash"
 CODE_EMBEDDING_MODEL = "Salesforce/codet5p-220m"
 CODE_TOKENIZER_MODEL = "Salesforce/codet5-base"

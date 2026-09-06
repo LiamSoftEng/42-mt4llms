@@ -46,8 +46,14 @@ def resolve_relation_ids(values: list[int | str] | None) -> list[int]:
         raise ValueError(f"Unknown MR(s): {unknown}. Available: {sorted(RELATIONS)}")
     return relation_ids
 
-def _run_tests(model_name: str, relation_name: str | None, relation_id: int | None, followup_only: bool) -> int:
-    results_path = build_results_path(model_name, relation_name, relation_id)
+def _run_tests(
+    model_name: str,
+    relation_name: str | None,
+    relation_id: int | None,
+    followup_only: bool,
+    difficulty: str | None = None,
+) -> int:
+    results_path = build_results_path(model_name, relation_name, relation_id, difficulty)
     if not results_path.exists():
         print(f"Results file not found for tests: {results_path}")
         return 1
@@ -85,7 +91,10 @@ def parse_args():
         nargs="+",
         choices=["easy", "medium", "hard"],
         default=None,
-        help="Only include problems of these difficulties. e.g. --difficulty easy medium",
+        help=(
+            "Run each listed difficulty separately, applying --n to each one. "
+            "e.g. --difficulty easy medium"
+        ),
     )
     parser.add_argument(
         "--mr",
@@ -133,37 +142,49 @@ def main() -> int:
         print("--repeats must be at least 1")
         return 2
 
-    dataset = load_livecode_bench(n_samples=args.n, after=args.after, difficulty=args.difficulty)
     models = [MODEL_CHOICES[name]() for name in args.models]
     runs = relation_ids or [None]
-    print(f"Running models: {[model.model_name for model in models]}, MRs: {relation_ids or ['base']}")
+    difficulty_runs = list(dict.fromkeys(args.difficulty)) if args.difficulty else [None]
+    print(
+        f"Running models: {[model.model_name for model in models]}, "
+        f"difficulties: {difficulty_runs if args.difficulty else ['all']}, "
+        f"MRs: {relation_ids or ['base']}"
+    )
     reset_model_call_counts()
 
     try:
-        for relation_id in runs:
-            relation = get_relation(relation_id) if relation_id is not None else None
-            runner = PipelineRunner(
-                models=models,
-                dataset=dataset,
-                relation=relation,
-                relation_id=relation_id,
-                mr_only=args.mr_only,
-                prompt_repeats=args.repeats,
-                resume=args.resume,
+        for difficulty in difficulty_runs:
+            dataset = load_livecode_bench(
+                n_samples=args.n,
+                after=args.after,
+                difficulty=difficulty,
             )
-            runner.run()
+            for relation_id in runs:
+                relation = get_relation(relation_id) if relation_id is not None else None
+                runner = PipelineRunner(
+                    models=models,
+                    dataset=dataset,
+                    relation=relation,
+                    relation_id=relation_id,
+                    mr_only=args.mr_only,
+                    prompt_repeats=args.repeats,
+                    resume=args.resume,
+                    difficulty=difficulty,
+                )
+                runner.run()
 
-            if args.run_tests:
-                for model in models:
-                    relation_name = relation.name if relation else None
-                    exit_code = _run_tests(
-                        model.model_name,
-                        relation_name,
-                        relation_id,
-                        args.mr_only,
-                    )
-                    if exit_code != 0:
-                        return exit_code
+                if args.run_tests:
+                    for model in models:
+                        relation_name = relation.name if relation else None
+                        exit_code = _run_tests(
+                            model.model_name,
+                            relation_name,
+                            relation_id,
+                            args.mr_only,
+                            difficulty,
+                        )
+                        if exit_code != 0:
+                            return exit_code
     finally:
         call_counts = get_model_call_counts()
         total_calls = call_counts["main"] + call_counts["helper"]

@@ -144,6 +144,7 @@ class PipelineRunner:
         mr_only: bool = False,
         prompt_repeats: int = 1,
         resume: bool = False,
+        difficulty: str | None = None,
     ):
         self.models = models
         self.dataset = dataset
@@ -153,6 +154,7 @@ class PipelineRunner:
         self.mr_only = mr_only
         self.prompt_repeats = max(1, prompt_repeats)
         self.resume = resume
+        self.difficulty = difficulty
         Path(RESULTS_DIR).mkdir(exist_ok=True)
 
     def _generate_responses(
@@ -196,6 +198,7 @@ class PipelineRunner:
                 model.model_name,
                 self.relation.name if self.relation else None,
                 self.relation_id,
+                self.difficulty,
             )
             results = _load_existing_results(out_path) if self.resume else []
             completed_ids = {
@@ -214,7 +217,7 @@ class PipelineRunner:
                 "reported": False,
             }
 
-            base_path = build_results_path(model.model_name, None, None)
+            base_path = build_results_path(model.model_name, None, None, self.difficulty)
             base_entries = _load_existing_results(base_path) if self.relation else []
             base_results = {
                 entry["question_id"]: entry
@@ -411,14 +414,21 @@ class PipelineRunner:
                             e for e in repeat_results[idx] if e.get("question_id") != sample["question_id"]
                         ]
                         repeat_results[idx].append(rep_entry)
-                        self._save_to_path(build_repeat_path(model.model_name, idx), repeat_results[idx], quiet=True)
+                        self._save_to_path(
+                            build_repeat_path(model.model_name, idx, self.difficulty),
+                            repeat_results[idx],
+                            quiet=True,
+                        )
 
                 time.sleep(self.delay)
 
             self._save_to_path(out_path, results)
 
             if write_repeat_files:
-                print(f"  Saved {self.prompt_repeats} per-repeat result files -> {build_repeats_dir(model.model_name)}")
+                print(
+                    f"  Saved {self.prompt_repeats} per-repeat result files -> "
+                    f"{build_repeats_dir(model.model_name, self.difficulty)}"
+                )
 
             if token_totals["reported"]:
                 thinking_total = token_totals.get("thinking_tokens", 0) or 0

@@ -49,6 +49,7 @@ CONFIG = {
     "models": ["openai"],
     "n": 5,
     "after": "2025-04-01",
+    "difficulty": ["easy", "medium", "hard"],  # Five questions from each difficulty.
     "mr": [1, 4, 7],  # Or "all" to run every registered MR.
     "mr_only": False,
     "run_tests": True,
@@ -76,7 +77,7 @@ python main.py [options]
 | `--models MODEL ...` | Models to run: `claude`, `openai`, or `gemini`. Defaults to all. |
 | `--n N` | Limit the number of dataset problems. |
 | `--after YYYY-MM-DD` | Include problems on or after the specified date. |
-| `--difficulty LEVEL ...` | Include only `easy`, `medium`, and/or `hard` problems. |
+| `--difficulty LEVEL ...` | Run each listed difficulty separately; `--n` applies to each difficulty. |
 | `--mr ID ...` | Apply one or more relation IDs, or use `--mr all`. |
 | `--mr-only` | Reuse saved base responses and generate only MR follow-up responses. Requires `--mr`. |
 | `--repeats N` | Generate each applicable prompt N times. Defaults to `1`. |
@@ -278,16 +279,22 @@ Interpretation:
 Raw generation results are saved under:
 
 ```text
-results/<model>/base/base.json
-results/<model>/mr-<id>-<relation>/mr-<id>-<relation>.json
+results/<model>/<difficulty>/base/base.json
+results/<model>/<difficulty>/mr-<id>-<relation>/mr-<id>-<relation>.json
 ```
+
+Supplying multiple difficulties runs them back to back. For example,
+`--n 20 --difficulty easy medium hard` runs 20 questions at each difficulty
+(60 questions per MR in total) and keeps their artifacts separate. If
+`--difficulty` is omitted, the legacy unscoped `results/<model>/...` layout is
+used.
 
 The model directory uses the configured model name from `config/settings.py`, sanitized for use as a folder name. For example, the `openai` CLI alias currently writes under `results/gpt-5-nano/`.
 
 When `--write-outputs` is used, additional files are created:
 
 ```text
-results/<model>/
+results/<model>/<difficulty>/
 |-- base/
 |   |-- base.json
 |   |-- base.html
