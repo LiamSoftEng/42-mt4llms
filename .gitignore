@@ -4,6 +4,7 @@ venv/
  
 # Results
 results/
+output/
  
 # HuggingFace cache
 ~/.cache/huggingface/
