@@ -6,32 +6,9 @@ from pathlib import Path
 
 from llms.base import BaseLLM
 from data.loader import build_code_question, build_prompt, INSTRUCTION_PREFIX, INSTRUCTION_SUFFIX
-from evaluation.executor import extract_code
 from evaluation.paths import build_results_path, build_repeat_path, build_repeats_dir
 from config.settings import RESULTS_DIR
-
-
-def _load_base_results(model_name: str) -> dict[str, dict]:
-    base_path = build_results_path(model_name, None, None)
-    if not base_path.exists():
-        print(f"  Base results not found for MR-only run: {base_path}")
-        return {}
-    try:
-        with open(base_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except (OSError, json.JSONDecodeError):
-        print(f"  Failed to read base results for MR-only run: {base_path}")
-        return {}
-    if not isinstance(data, list):
-        print(f"  Unexpected base results format (expected list): {base_path}")
-        return {}
-    return {
-        qid: entry
-        for entry in data
-        if isinstance(entry, dict)
-        and isinstance((qid := entry.get("question_id")), str)
-        and qid
-    }
+from cost_tracker import record_model_call
 
 
 def _load_existing_results(path: Path) -> list[dict]:
@@ -49,19 +26,8 @@ def _load_existing_results(path: Path) -> list[dict]:
     return [entry for entry in data if isinstance(entry, dict)]
 
 
-def _entry_has_code(entry: dict, response_key: str) -> bool:
-    response = entry.get(response_key, "")
-    return isinstance(response, str) and extract_code(response) is not None
-
-
 def _entry_complete_for_resume(entry: dict, relation=None, mr_only: bool = False) -> bool:
-    if not isinstance(entry.get("question_id"), str) or not entry["question_id"]:
-        return False
-    if mr_only:
-        return _entry_has_code(entry, "followup_response")
-    if relation:
-        return _entry_has_code(entry, "response") and _entry_has_code(entry, "followup_response")
-    return _entry_has_code(entry, "response")
+    return isinstance(entry.get("question_id"), str) and bool(entry["question_id"])
 
 
 def _extract_usage(usage: dict | None) -> tuple[int | None, int | None, int | None, int | None]:
@@ -178,6 +144,7 @@ class PipelineRunner:
         mr_only: bool = False,
         prompt_repeats: int = 1,
         resume: bool = False,
+        difficulty: str | None = None,
     ):
         self.models = models
         self.dataset = dataset
@@ -187,6 +154,7 @@ class PipelineRunner:
         self.mr_only = mr_only
         self.prompt_repeats = max(1, prompt_repeats)
         self.resume = resume
+        self.difficulty = difficulty
         Path(RESULTS_DIR).mkdir(exist_ok=True)
 
     def _generate_responses(
@@ -198,6 +166,7 @@ class PipelineRunner:
         generated = GeneratedResponses()
         for repeat_index in range(self.prompt_repeats):
             try:
+                record_model_call("main")
                 response = model.generate(prompt)
                 usage = model.last_usage
                 call_time = model.last_call_time
@@ -229,6 +198,7 @@ class PipelineRunner:
                 model.model_name,
                 self.relation.name if self.relation else None,
                 self.relation_id,
+                self.difficulty,
             )
             results = _load_existing_results(out_path) if self.resume else []
             completed_ids = {
@@ -237,7 +207,7 @@ class PipelineRunner:
                 if _entry_complete_for_resume(entry, self.relation, self.mr_only)
             }
             if self.resume and completed_ids:
-                print(f"  Resume enabled: loaded {len(completed_ids)} completed code results from {out_path}")
+                print(f"  Resume enabled: loaded {len(completed_ids)} existing results from {out_path}")
 
             token_totals: dict = {
                 "prompt_tokens": 0,
@@ -247,9 +217,13 @@ class PipelineRunner:
                 "reported": False,
             }
 
-            base_results = {}
-            if self.relation and self.mr_only:
-                base_results = _load_base_results(model.model_name)
+            base_path = build_results_path(model.model_name, None, None, self.difficulty)
+            base_entries = _load_existing_results(base_path) if self.relation else []
+            base_results = {
+                entry["question_id"]: entry
+                for entry in base_entries
+                if isinstance(entry.get("question_id"), str) and entry["question_id"]
+            }
 
             # For a plain base run (no --mr) with --repeats > 1, each repeat is
             # also written out as its own full results file under base/repeats/,
@@ -274,9 +248,15 @@ class PipelineRunner:
 
                 # ── Source response ──────────────────────────────────────────
                 source = GeneratedResponses()
+                base_entry = base_results.get(sample["question_id"]) if self.relation else None
+                base_status = ""
 
-                if not (self.relation and self.mr_only):
+                if base_entry:
+                    base_status = "base exists"
+                else:
                     source = self._generate_responses(model, prompt, token_totals)
+                    if self.relation:
+                        base_status = "base generated"
 
                 response = source.primary_response
                 response_samples = source.responses
@@ -285,17 +265,50 @@ class PipelineRunner:
                 llm_call_time = source.primary_call_time
                 finish_reason = source.primary_finish_reason
 
-                if self.relation and self.mr_only and base_results:
-                    base_entry = base_results.get(sample["question_id"])
-                    if base_entry:
-                        response = base_entry.get("response", "")
-                        response_samples = base_entry.get("response_samples") or ([response] if response else [])
-                        error = base_entry.get("error", "")
-                        llm_call_time = base_entry.get("llm_call_time")
-                        finish_reason = base_entry.get("finish_reason")
+                if base_entry:
+                    response = base_entry.get("response", "")
+                    response_samples = base_entry.get("response_samples") or ([response] if response else [])
+                    error = base_entry.get("error", "")
+                    prompt_tokens = base_entry.get("prompt_tokens")
+                    completion_tokens = base_entry.get("completion_tokens")
+                    total_tokens = base_entry.get("total_tokens")
+                    thinking_tokens = base_entry.get("thinking_tokens")
+                    token_efficiency = base_entry.get("token_efficiency")
+                    llm_call_time = base_entry.get("llm_call_time")
+                    finish_reason = base_entry.get("finish_reason")
+                else:
+                    prompt_tokens, completion_tokens, total_tokens, thinking_tokens = _extract_usage(usage)
+                    token_efficiency = _token_efficiency(usage)
 
-                prompt_tokens, completion_tokens, total_tokens, thinking_tokens = _extract_usage(usage)
-                token_efficiency = _token_efficiency(usage)
+                source_result = LLMResult(
+                    question_id=sample["question_id"],
+                    question_title=sample["question_title"],
+                    difficulty=sample["difficulty"],
+                    platform=sample["platform"],
+                    model_name=model.model_name,
+                    instruction_prefix=INSTRUCTION_PREFIX,
+                    instruction_suffix=INSTRUCTION_SUFFIX,
+                    question=question,
+                    response=response,
+                    response_samples=response_samples,
+                    public_test_cases=json.dumps(sample.get("public_test_cases", [])),
+                    private_test_cases=sample.get("private_test_cases", ""),
+                    metadata=json.dumps(sample.get("metadata", {})),
+                    error=error,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
+                    thinking_tokens=thinking_tokens,
+                    token_efficiency=token_efficiency,
+                    llm_call_time=llm_call_time,
+                    finish_reason=finish_reason,
+                )
+
+                if self.relation and not base_entry:
+                    base_entry = asdict(source_result)
+                    base_entries.append(base_entry)
+                    base_results[sample["question_id"]] = base_entry
+                    self._save_to_path(base_path, base_entries, quiet=True)
 
                 # ── Followup response ────────────────────────────────────────
                 followup_question = ""
@@ -342,34 +355,20 @@ class PipelineRunner:
                     followup_finish_reason = followup.primary_finish_reason
 
                     if self.mr_only:
-                        print(f"ok (mr-only + {self.relation.name} [{target}], repeats={self.prompt_repeats})")
+                        print(
+                            f"ok ({base_status}, mr-only + {self.relation.name} "
+                            f"[{target}], repeats={self.prompt_repeats})"
+                        )
                     else:
-                        print(f"ok (+ {self.relation.name} [{target}], repeats={self.prompt_repeats})")
+                        print(
+                            f"ok ({base_status} + {self.relation.name} "
+                            f"[{target}], repeats={self.prompt_repeats})"
+                        )
                 else:
                     print(f"ok (repeats={self.prompt_repeats})" if self.prompt_repeats > 1 else "ok")
 
-                result = LLMResult(
-                    question_id=sample["question_id"],
-                    question_title=sample["question_title"],
-                    difficulty=sample["difficulty"],
-                    platform=sample["platform"],
-                    model_name=model.model_name,
-                    instruction_prefix=INSTRUCTION_PREFIX,
-                    instruction_suffix=INSTRUCTION_SUFFIX,
-                    question=question,
-                    response=response,
-                    response_samples=response_samples,
-                    public_test_cases=json.dumps(sample.get("public_test_cases", [])),
-                    private_test_cases=sample.get("private_test_cases", ""),
-                    metadata=json.dumps(sample.get("metadata", {})),
-                    error=error,
-                    prompt_tokens=prompt_tokens,
-                    completion_tokens=completion_tokens,
-                    total_tokens=total_tokens,
-                    thinking_tokens=thinking_tokens,
-                    token_efficiency=token_efficiency,
-                    llm_call_time=llm_call_time,
-                    finish_reason=finish_reason,
+                result = replace(
+                    source_result,
                     relation=self.relation.name if self.relation else "",
                     followup_instruction_prefix=followup_instruction_prefix,
                     followup_instruction_suffix=followup_instruction_suffix,
@@ -415,14 +414,21 @@ class PipelineRunner:
                             e for e in repeat_results[idx] if e.get("question_id") != sample["question_id"]
                         ]
                         repeat_results[idx].append(rep_entry)
-                        self._save_to_path(build_repeat_path(model.model_name, idx), repeat_results[idx], quiet=True)
+                        self._save_to_path(
+                            build_repeat_path(model.model_name, idx, self.difficulty),
+                            repeat_results[idx],
+                            quiet=True,
+                        )
 
                 time.sleep(self.delay)
 
             self._save_to_path(out_path, results)
 
             if write_repeat_files:
-                print(f"  Saved {self.prompt_repeats} per-repeat result files -> {build_repeats_dir(model.model_name)}")
+                print(
+                    f"  Saved {self.prompt_repeats} per-repeat result files -> "
+                    f"{build_repeats_dir(model.model_name, self.difficulty)}"
+                )
 
             if token_totals["reported"]:
                 thinking_total = token_totals.get("thinking_tokens", 0) or 0

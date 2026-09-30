@@ -42,14 +42,14 @@ def _delta(a, b) -> str:
 def _mr_badge(holds: bool | None, metric_violations: dict | None = None) -> str:
     """
     Badge for the overall MR verdict. A row is VIOLATED if either the test
-    verdict diverged (holds is False) or any metric breached its configured
-    threshold (metric_violations non-empty) — even if the test verdict
-    itself still holds.
+    verdict diverged (holds is False) or any metric's t-test against its
+    per-question repeat baseline came back significant (metric_violations
+    non-empty) — even if the test verdict itself still holds.
     """
     metric_violations = metric_violations or {}
     if holds is False or metric_violations:
         names = ", ".join(metric_violations)
-        title = f' title="Metric threshold(s) breached: {names}"' if names else ""
+        title = f' title="Flagged by t-test: {names}"' if names else ""
         return f'<span class="badge violated"{title}>VIOLATED</span>'
     if holds is True:
         return '<span class="badge holds">HOLDS</span>'
@@ -58,17 +58,23 @@ def _mr_badge(holds: bool | None, metric_violations: dict | None = None) -> str:
 
 def _violation_span(text: str, detail: dict | None) -> str:
     """Wrap a cell's text in a red span when `detail` (a single entry from
-    check_metric_violations) indicates that metric breached its threshold."""
+    check_metric_violations) indicates that metric's t-test against its
+    per-question repeat baseline came back significant."""
     if not detail:
         return text
-    thr = detail.get("threshold")
-    d = detail.get("delta")
-    if d is not None and thr is not None:
-        title = f' title="&Delta;{d:+.2f} exceeds allowed threshold of {thr:g}"'
-    elif thr is not None:
-        title = f' title="below minimum threshold of {thr:g}"'
-    else:
-        title = ""
+    p = detail.get("p_value")
+    mean_b = detail.get("baseline_mean")
+    std_b = detail.get("baseline_std")
+    followup_v = detail.get("followup")
+
+    bits = []
+    if p is not None:
+        bits.append(f"p={p:.4g}")
+    if mean_b is not None and std_b is not None:
+        bits.append(f"baseline={mean_b:.3g}&plusmn;{std_b:.3g}")
+    if isinstance(followup_v, (int, float)):
+        bits.append(f"followup={followup_v:.3g}")
+    title = f' title="{"; ".join(bits)}"' if bits else ""
     return f'<span class="delta-neg"{title}>{text}</span>'
 
 
@@ -151,6 +157,15 @@ def _relation_name_from_folder(folder_name: str) -> str:
     return folder_name
 
 
+def _relation_id_from_folder(folder_name: str) -> int | None:
+    if not folder_name.startswith("mr-"):
+        return None
+    try:
+        return int(folder_name.split("-", 2)[1])
+    except (IndexError, ValueError):
+        return None
+
+
 def _build_section(base: dict, followup: dict, relation_name: str | None) -> dict:
     """
     Render the stats boxes and data table for one relation run.
@@ -162,13 +177,15 @@ def _build_section(base: dict, followup: dict, relation_name: str | None) -> dic
     has_mr = bool(followup) and bool(relation_name)
     all_ids = list(base.keys()) or list(followup.keys())
 
-    # Per-row metric-threshold violations (config.settings.METRIC_VARIANCE_THRESHOLDS),
-    # computed once and reused below for both the aggregate stat boxes and the
-    # per-row cell highlighting, so the two never disagree on what "violated" means.
+    # Per-row metric violations, computed once and reused below for both the
+    # aggregate stat boxes and the per-row cell highlighting, so the two
+    # never disagree on what "violated" means. Each row is checked via a
+    # one-sample t-test against that question's repeat-run baseline (see
+    # evaluation.metric_violations.check_metric_violations).
     row_metric_violations: dict[str, dict] = {}
     if has_mr:
         for qid in all_ids:
-            mv = check_metric_violations(base.get(qid, {}), followup.get(qid, {}))
+            mv = check_metric_violations(qid, followup.get(qid, {}))
             if mv:
                 row_metric_violations[qid] = mv
 
@@ -184,7 +201,7 @@ def _build_section(base: dict, followup: dict, relation_name: str | None) -> dic
     flw_extractable = sum(1 for r in followup.values() if r.get("extractable_code"))
 
     # A row now counts as holding only if the test verdict held AND no metric
-    # breached its threshold — previously this only looked at mr_holds, so
+    # was flagged by its t-test — previously this only looked at mr_holds, so
     # metric-only violations were silently counted as "holds".
     mr_holds = sum(
         1 for qid in all_ids
@@ -254,8 +271,8 @@ def _build_section(base: dict, followup: dict, relation_name: str | None) -> dic
 
         row_total_time = format_duration(_row_total_time(b, f, has_mr))
 
-        # Highlight cells for metrics that breached their configured threshold
-        # (config.settings.METRIC_VARIANCE_THRESHOLDS).
+        # Highlight cells for metrics whose t-test against the repeat baseline
+        # came back significant (config.settings.TTEST_ALPHA).
         delta_ncloc_html = _violation_span(_delta(b_ncloc, f_ncloc), metric_violations.get("ncloc"))
         delta_cc_html = _violation_span(_delta(b_cc, f_cc), metric_violations.get("cyclomatic_complexity"))
         code_sim_html = _violation_span(format_value(code_sim), metric_violations.get("code_sim"))
@@ -335,7 +352,7 @@ def _build_section(base: dict, followup: dict, relation_name: str | None) -> dic
             <div class="stat-label">MR [{relation_name}]</div>
             <div class="stat-value">{hold_pct}% hold rate</div>
             <div class="stat-sub">{mr_holds} holds / {mr_violated} violations / {mr_total} total</div>
-            <div class="stat-sub">Of which {metric_violated_count} breached a metric threshold</div>
+            <div class="stat-sub">Of which {metric_violated_count} flagged by a metric t-test</div>
         </div>
         <div class="stat-box">
             <div class="stat-label">Passes same tests</div>
@@ -396,6 +413,24 @@ def _build_section(base: dict, followup: dict, relation_name: str | None) -> dic
         "stats_html": stats_html,
         "table_headers": table_headers,
         "rows_html": rows_html,
+        "summary": {
+            "base_total": base_total,
+            "base_passed": base_passed,
+            "base_extractable": base_extractable,
+            "followup_total": flw_total,
+            "followup_passed": flw_passed,
+            "followup_extractable": flw_extractable,
+            "mr_holds": mr_holds,
+            "mr_violated": mr_violated,
+            "metric_violated": metric_violated_count,
+            "same_tests": same_tests_count,
+            "different_tests": diff_tests_count,
+            "base_time": _sum_time(base, "llm_call_time") + _sum_time(base, "test_run_time"),
+            "followup_time": (
+                _sum_time(followup, "llm_call_time")
+                + _sum_time(followup, "test_run_time")
+            ),
+        },
     }
 
 
@@ -512,6 +547,8 @@ def generate_merged_html_report(
     model_name: str,
     results_dir: str,
     out_path: Path | None = None,
+    difficulty: str | None = None,
+    relation_ids: list[int] | None = None,
 ) -> Path:
     """
     Build a single merged report (results/<model>/all.html) with one clearly
@@ -526,6 +563,8 @@ def generate_merged_html_report(
     report bodies and left the merged page with no section markers at all.
     """
     model_dir = Path(results_dir) / safe_name(model_name)
+    if difficulty:
+        model_dir = model_dir / difficulty.lower()
     out_path = out_path or model_dir / "all.html"
 
     base_results = model_dir / "base" / "base.results.json"
@@ -543,6 +582,8 @@ def generate_merged_html_report(
 
     if model_dir.exists():
         for folder in sorted(p for p in model_dir.iterdir() if p.is_dir() and p.name.startswith("mr-")):
+            if relation_ids is not None and _relation_id_from_folder(folder.name) not in relation_ids:
+                continue
             flw_results = folder / "followup.results.json"
             if not flw_results.exists():
                 continue
@@ -562,6 +603,60 @@ def generate_merged_html_report(
     if not sections:
         print(f"  No results found to merge for {model_name}")
         return out_path
+
+    mr_summaries = [section["summary"] for anchor, _, section in sections if anchor != "base"]
+    base_summary = next(
+        (section["summary"] for anchor, _, section in sections if anchor == "base"),
+        {},
+    )
+
+    def _sum_summary(key: str) -> int | float:
+        return sum(summary.get(key, 0) for summary in mr_summaries)
+
+    base_total = base_summary.get("base_total", 0)
+    base_passed = base_summary.get("base_passed", 0)
+    followup_total = _sum_summary("followup_total")
+    followup_passed = _sum_summary("followup_passed")
+    mr_holds = _sum_summary("mr_holds")
+    mr_violated = _sum_summary("mr_violated")
+    mr_total = mr_holds + mr_violated
+    metric_violated = _sum_summary("metric_violated")
+    total_time = base_summary.get("base_time", 0) + _sum_summary("followup_time")
+
+    def _pct(numerator: int | float, denominator: int | float) -> int:
+        return round(numerator / denominator * 100) if denominator else 0
+
+    difficulty_label = difficulty.title() if difficulty else "All difficulties"
+    summary_html = f"""
+<div class="subtitle">{difficulty_label} — combined report</div>
+<div class="stats summary-stats">
+  <div class="stat-box">
+    <div class="stat-label">Coverage</div>
+    <div class="stat-value">{len(mr_summaries)} MRs</div>
+    <div class="stat-sub">{base_total} unique questions / {followup_total} MR evaluations</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-label">Base pass rate</div>
+    <div class="stat-value">{_pct(base_passed, base_total)}%</div>
+    <div class="stat-sub">{base_passed} passed / {base_total - base_passed} failed</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-label">All followups pass rate</div>
+    <div class="stat-value">{_pct(followup_passed, followup_total)}%</div>
+    <div class="stat-sub">{followup_passed} passed / {followup_total - followup_passed} failed</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-label">Overall MR hold rate</div>
+    <div class="stat-value">{_pct(mr_holds, mr_total)}%</div>
+    <div class="stat-sub">{mr_holds} holds / {mr_violated} violations</div>
+    <div class="stat-sub">{metric_violated} flagged by a metric t-test</div>
+  </div>
+  <div class="stat-box">
+    <div class="stat-label">Total time</div>
+    <div class="stat-value">{format_duration(total_time)}</div>
+    <div class="stat-sub">Base once + all MR followups and tests</div>
+  </div>
+</div>"""
 
     # ── Table of contents ────────────────────────────────────────────────────
     toc_items = "\n".join(
@@ -601,6 +696,7 @@ def generate_merged_html_report(
 </head>
 <body>
 <h1>MT Report — {model_name}</h1>
+{summary_html}
 {toc_html}
 {content}
 </body>

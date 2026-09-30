@@ -2,8 +2,16 @@ import argparse
 import subprocess
 import sys
 
+from cost_tracker import (
+    get_model_call_counts,
+    get_run_cost_summary,
+    reconcile_cost_file,
+    reset_model_call_counts,
+)
+from config.settings import RESULTS_DIR
 from data.loader import load_livecode_bench
 from evaluation.paths import build_results_path
+from evaluation.report import generate_merged_html_report
 from evaluation.runner import PipelineRunner
 from llms import ClaudeModel, GeminiModel, OpenAIModel
 from metamorphic.relations_list import RELATIONS
@@ -45,8 +53,14 @@ def resolve_relation_ids(values: list[int | str] | None) -> list[int]:
         raise ValueError(f"Unknown MR(s): {unknown}. Available: {sorted(RELATIONS)}")
     return relation_ids
 
-def _run_tests(model_name: str, relation_name: str | None, relation_id: int | None, followup_only: bool) -> int:
-    results_path = build_results_path(model_name, relation_name, relation_id)
+def _run_tests(
+    model_name: str,
+    relation_name: str | None,
+    relation_id: int | None,
+    followup_only: bool,
+    difficulty: str | None = None,
+) -> int:
+    results_path = build_results_path(model_name, relation_name, relation_id, difficulty)
     if not results_path.exists():
         print(f"Results file not found for tests: {results_path}")
         return 1
@@ -84,7 +98,10 @@ def parse_args():
         nargs="+",
         choices=["easy", "medium", "hard"],
         default=None,
-        help="Only include problems of these difficulties. e.g. --difficulty easy medium",
+        help=(
+            "Run each listed difficulty separately, applying --n to each one. "
+            "e.g. --difficulty easy medium"
+        ),
     )
     parser.add_argument(
         "--mr",
@@ -97,7 +114,7 @@ def parse_args():
     parser.add_argument(
         "--mr-only",
         action="store_true",
-        help="When used with --mr, skip the base LLM call and generate followup only",
+        help="When used with --mr, reuse shared base results and generate any missing bases",
     )
     parser.add_argument(
         "--run-tests",
@@ -132,35 +149,81 @@ def main() -> int:
         print("--repeats must be at least 1")
         return 2
 
-    dataset = load_livecode_bench(n_samples=args.n, after=args.after, difficulty=args.difficulty)
     models = [MODEL_CHOICES[name]() for name in args.models]
     runs = relation_ids or [None]
-    print(f"Running models: {[model.model_name for model in models]}, MRs: {relation_ids or ['base']}")
+    difficulty_runs = list(dict.fromkeys(args.difficulty)) if args.difficulty else [None]
+    print(
+        f"Running models: {[model.model_name for model in models]}, "
+        f"difficulties: {difficulty_runs if args.difficulty else ['all']}, "
+        f"MRs: {relation_ids or ['base']}"
+    )
+    reset_model_call_counts()
+    reconcile_cost_file()
 
-    for relation_id in runs:
-        relation = get_relation(relation_id) if relation_id is not None else None
-        runner = PipelineRunner(
-            models=models,
-            dataset=dataset,
-            relation=relation,
-            relation_id=relation_id,
-            mr_only=args.mr_only,
-            prompt_repeats=args.repeats,
-            resume=args.resume,
-        )
-        runner.run()
-
-        if args.run_tests:
-            for model in models:
-                relation_name = relation.name if relation else None
-                exit_code = _run_tests(
-                    model.model_name,
-                    relation_name,
-                    relation_id,
-                    args.mr_only,
+    try:
+        for difficulty in difficulty_runs:
+            dataset = load_livecode_bench(
+                n_samples=args.n,
+                after=args.after,
+                difficulty=difficulty,
+            )
+            for relation_id in runs:
+                relation = get_relation(relation_id) if relation_id is not None else None
+                runner = PipelineRunner(
+                    models=models,
+                    dataset=dataset,
+                    relation=relation,
+                    relation_id=relation_id,
+                    mr_only=args.mr_only,
+                    prompt_repeats=args.repeats,
+                    resume=args.resume,
+                    difficulty=difficulty,
                 )
-                if exit_code != 0:
-                    return exit_code
+                runner.run()
+
+                if args.run_tests:
+                    for model in models:
+                        relation_name = relation.name if relation else None
+                        exit_code = _run_tests(
+                            model.model_name,
+                            relation_name,
+                            relation_id,
+                            args.mr_only,
+                            difficulty,
+                        )
+                        if exit_code != 0:
+                            return exit_code
+
+            if args.run_tests and relation_ids:
+                for model in models:
+                    generate_merged_html_report(
+                        model_name=model.model_name,
+                        results_dir=RESULTS_DIR,
+                        difficulty=difficulty,
+                        relation_ids=relation_ids,
+                    )
+    finally:
+        call_counts = get_model_call_counts()
+        total_calls = call_counts["main"] + call_counts["helper"]
+        print(
+            f"\nModel calls (total): main={call_counts['main']}, "
+            f"helper={call_counts['helper']}, combined={total_calls}"
+        )
+        run_costs = get_run_cost_summary()
+        combined_cost = 0.0
+        if any(run_costs.values()):
+            print("Run cost by model and role (USD):")
+        for role in ("main", "helper"):
+            for model_name, usage in run_costs[role].items():
+                combined_cost += usage["cost_usd"]
+                missing = " (rate missing)" if usage.get("missing_rate") else ""
+                print(
+                    f"  {role}: {model_name} — "
+                    f"{usage['prompt_tokens']} input + {usage['completion_tokens']} output tokens, "
+                    f"${usage['cost_usd']:.6f}{missing}"
+                )
+        if any(run_costs.values()):
+            print(f"Run cost combined (USD): ${combined_cost:.6f}")
     return 0
 
 if __name__ == "__main__":

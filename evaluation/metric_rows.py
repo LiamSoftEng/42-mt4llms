@@ -1,5 +1,7 @@
 """Shared serializers for the metric rows produced by ``runtests.py``."""
 
+from evaluation.metric_violations import compute_violation_field
+
 BASE_CSV_FIELDS = [
     "id",
     "extractable_code", "passes_tests", "source_passed",
@@ -61,6 +63,11 @@ def serialize_metric_side(row: dict, side: str) -> dict:
             "mr_holds": row.get("mr_holds"),
             "code_sim": row.get("code_sim"),
         })
+        # Tri-state overall verdict for this row: "true" (violated), "false"
+        # (clean), or "n/a" (nothing was comparable — no test verdict and no
+        # repeat baseline for this question). See
+        # evaluation.metric_violations.compute_violation_field.
+        output["violation"] = compute_violation_field(output["question_id"], output)
     return output
 
 

@@ -1,10 +1,18 @@
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+from cost_tracker import get_model_call_counts, reset_model_call_counts
+import cost_tracker
 from evaluation.metric_violations import check_metric_violations
-from evaluation.report import format_decimal, format_value
+from evaluation.metrics import _strip_comments_for_codesim, compute_code_similarity, compute_ttest_violation
+from evaluation.report import format_decimal, format_value, generate_merged_html_report
 from evaluation.runner import PipelineRunner
+from evaluation.paths import build_results_path
+import main as pipeline_main
 from llms.claude_model import ClaudeModel
 from llms.gemini_model import GeminiModel
 from llms.mr_helper import MRHelper
@@ -34,14 +42,151 @@ class MRRegressionTests(unittest.TestCase):
 
 
 class MetricRegressionTests(unittest.TestCase):
-    def test_static_metric_error_sentinels_are_not_compared(self):
+    @patch("evaluation.metrics._encode_with_transformers")
+    def test_codesim_removes_comments_but_preserves_hashes_in_strings(self, encode):
+        encode.side_effect = RuntimeError("stop after preprocessing")
+
+        compute_code_similarity(
+            'value = "# retained"  # removed\n',
+            "value = '# also retained'\n# removed too\n",
+        )
+
+        code_a, code_b = encode.call_args.args
+        self.assertIn('"# retained"', code_a)
+        self.assertNotIn("# removed", code_a)
+        self.assertIn("'# also retained'", code_b)
+        self.assertNotIn("# removed too", code_b)
+        self.assertEqual(
+            _strip_comments_for_codesim("value = 1\n"),
+            _strip_comments_for_codesim("# heading\nvalue = 1  # explanation\n"),
+        )
+
+    @patch("evaluation.metric_violations.load_repeat_baseline")
+    def test_static_metric_error_sentinels_are_not_compared(self, load_baseline):
+        load_baseline.return_value = {
+            "question": {
+                "ncloc": (10, 11, 12),
+                "cyclomatic_complexity": (2.0, 2.5, 3.0),
+            }
+        }
         violations = check_metric_violations(
+            "question",
             {"ncloc": -1, "cyclomatic_complexity": -2},
-            {"ncloc": 20, "cyclomatic_complexity": 5.0},
         )
 
         self.assertNotIn("ncloc", violations)
         self.assertNotIn("cyclomatic_complexity", violations)
+
+    def test_one_sided_ttests_only_flag_the_configured_direction(self):
+        baseline = [9, 10, 10, 10, 11]
+
+        above = compute_ttest_violation(baseline, 12, alternative="less")
+        below = compute_ttest_violation(baseline, 8, alternative="less")
+        self.assertTrue(above["significant"])
+        self.assertFalse(below["significant"])
+
+        below = compute_ttest_violation(baseline, 8, alternative="greater")
+        above = compute_ttest_violation(baseline, 12, alternative="greater")
+        self.assertTrue(below["significant"])
+        self.assertFalse(above["significant"])
+
+    @patch("evaluation.metric_violations.load_repeat_baseline")
+    def test_metric_tests_use_mixed_directions(self, load_baseline):
+        samples = (9, 10, 10, 10, 11)
+        load_baseline.return_value = {
+            "question": {
+                "ncloc": samples,
+                "cyclomatic_complexity": samples,
+                "llm_call_time": samples,
+                "total_tokens": samples,
+                "token_efficiency": samples,
+                "code_sim": samples,
+            }
+        }
+
+        violations = check_metric_violations(
+            "question",
+            {
+                "ncloc": 8,
+                "cyclomatic_complexity": 8,
+                "llm_call_time": 8,
+                "total_tokens": 8,
+                "token_efficiency": 12,
+                "code_sim": 12,
+            },
+        )
+
+        self.assertEqual(
+            set(violations),
+            {"ncloc", "cyclomatic_complexity", "total_tokens"},
+        )
+
+        violations = check_metric_violations(
+            "question",
+            {
+                "llm_call_time": 12,
+                "token_efficiency": 8,
+                "code_sim": 8,
+            },
+        )
+        self.assertEqual(
+            set(violations),
+            {"llm_call_time", "token_efficiency", "code_sim"},
+        )
+
+    def test_mr_runs_append_and_reuse_shared_base_results(self):
+        reset_model_call_counts()
+        calls = []
+
+        def generate(prompt):
+            calls.append(prompt)
+            return f"response-{len(calls)}"
+
+        model = SimpleNamespace(
+            model_name="test-model",
+            generate=generate,
+            last_usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            last_call_time=0.1,
+            last_finish_reason="stop",
+        )
+        samples = [
+            {
+                "question_id": qid,
+                "question_title": qid,
+                "question_content": "Solve it.",
+                "difficulty": "easy",
+                "platform": "test",
+            }
+            for qid in ("q1", "q2")
+        ]
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+
+            def result_path(_model_name, relation_name=None, relation_id=None, difficulty=None):
+                if relation_name:
+                    return root / f"mr-{relation_id}.json"
+                return root / "base.json"
+
+            relation_1 = SimpleNamespace(name="first", target="PD", transform=lambda question: question)
+            relation_2 = SimpleNamespace(name="second", target="PD", transform=lambda question: question)
+
+            with patch("evaluation.runner.build_results_path", side_effect=result_path), patch("builtins.print") as output:
+                PipelineRunner([model], samples[:1], delay=0, relation=relation_1, relation_id=1).run()
+                PipelineRunner([model], samples, delay=0, relation=relation_2, relation_id=2).run()
+
+            base_entries = json.loads((root / "base.json").read_text(encoding="utf-8"))
+            second_mr = json.loads((root / "mr-2.json").read_text(encoding="utf-8"))
+            printed = " ".join(" ".join(map(str, call.args)) for call in output.call_args_list)
+
+        self.assertEqual(len(calls), 5)
+        self.assertEqual(get_model_call_counts(), {"main": 5, "helper": 0})
+        self.assertEqual([entry["question_id"] for entry in base_entries], ["q1", "q2"])
+        self.assertEqual(base_entries[0]["response"], "response-1")
+        self.assertEqual(second_mr[0]["response"], "response-1")
+        self.assertEqual(second_mr[1]["response"], "response-4")
+        self.assertIn("base exists", printed)
+        self.assertIn("base generated", printed)
 
     def test_static_metric_error_sentinels_display_as_unavailable(self):
         for sentinel in (-1, -1.0, -2, -2.0):
@@ -50,9 +195,143 @@ class MetricRegressionTests(unittest.TestCase):
                 self.assertEqual(format_decimal(sentinel), "N/A")
 
 
+class DifficultyRunRegressionTests(unittest.TestCase):
+    def test_result_paths_are_separate_for_each_difficulty(self):
+        with TemporaryDirectory() as temp_dir, patch("evaluation.paths.RESULTS_DIR", temp_dir):
+            easy = build_results_path("test-model", "relation", 1, "easy")
+            medium = build_results_path("test-model", "relation", 1, "medium")
+            hard = build_results_path("test-model", "relation", 1, "hard")
+
+        self.assertNotEqual(easy, medium)
+        self.assertNotEqual(medium, hard)
+        self.assertEqual(easy.parts[-3:], ("easy", "mr-01-relation", "mr-01-relation.json"))
+        self.assertEqual(medium.parts[-3:], ("medium", "mr-01-relation", "mr-01-relation.json"))
+        self.assertEqual(hard.parts[-3:], ("hard", "mr-01-relation", "mr-01-relation.json"))
+
+    def test_main_runs_each_difficulty_with_each_mr(self):
+        args = SimpleNamespace(
+            models=["openai"],
+            n=20,
+            after=None,
+            difficulty=["easy", "medium", "hard"],
+            mr=[1, 2],
+            mr_only=False,
+            run_tests=True,
+            repeats=1,
+            resume=False,
+        )
+        load_calls = []
+        runner_calls = []
+
+        def load_dataset(**kwargs):
+            load_calls.append(kwargs)
+            return [kwargs["difficulty"]]
+
+        class FakeRunner:
+            def __init__(self, **kwargs):
+                runner_calls.append(kwargs)
+
+            def run(self):
+                return None
+
+        with (
+            patch.object(pipeline_main, "parse_args", return_value=args),
+            patch.object(pipeline_main, "MODEL_CHOICES", {"openai": lambda: SimpleNamespace(model_name="model")}),
+            patch.object(pipeline_main, "load_livecode_bench", side_effect=load_dataset),
+            patch.object(
+                pipeline_main,
+                "get_relation",
+                side_effect=lambda relation_id: SimpleNamespace(name=f"mr-{relation_id}"),
+            ),
+            patch.object(pipeline_main, "PipelineRunner", FakeRunner),
+            patch.object(pipeline_main, "_run_tests", return_value=0),
+            patch.object(pipeline_main, "generate_merged_html_report") as merged_report,
+            patch("builtins.print"),
+        ):
+            exit_code = pipeline_main.main()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            [call["difficulty"] for call in load_calls],
+            ["easy", "medium", "hard"],
+        )
+        self.assertTrue(all(call["n_samples"] == 20 for call in load_calls))
+        self.assertEqual(
+            [(call["difficulty"], call["relation_id"]) for call in runner_calls],
+            [
+                ("easy", 1),
+                ("easy", 2),
+                ("medium", 1),
+                ("medium", 2),
+                ("hard", 1),
+                ("hard", 2),
+            ],
+        )
+        self.assertEqual(
+            [call.kwargs["difficulty"] for call in merged_report.call_args_list],
+            ["easy", "medium", "hard"],
+        )
+        self.assertTrue(
+            all(call.kwargs["relation_ids"] == [1, 2] for call in merged_report.call_args_list)
+        )
+
+    def test_merged_report_has_difficulty_summary_and_all_mrs(self):
+        base_rows = [
+            {
+                "question_id": f"q{i}",
+                "question_title": f"Question {i}",
+                "difficulty": "easy",
+                "platform": "test",
+                "passed": i == 1,
+                "extractable_code": True,
+                "tests_passed": i,
+                "tests_total": 1,
+            }
+            for i in (1, 2)
+        ]
+        followup_rows = [
+            {
+                **row,
+                "passed": True,
+                "mr_holds": True,
+                "passes_same_tests": True,
+            }
+            for row in base_rows
+        ]
+
+        with TemporaryDirectory() as temp_dir:
+            model_dir = Path(temp_dir) / "test-model" / "easy"
+            base_dir = model_dir / "base"
+            base_dir.mkdir(parents=True)
+            (base_dir / "base.results.json").write_text(json.dumps(base_rows), encoding="utf-8")
+            for mr_id, name in ((1, "first"), (2, "second")):
+                mr_dir = model_dir / f"mr-{mr_id:02d}-{name}"
+                mr_dir.mkdir()
+                (mr_dir / "followup.results.json").write_text(
+                    json.dumps(followup_rows),
+                    encoding="utf-8",
+                )
+
+            with patch("evaluation.report.check_metric_violations", return_value={}):
+                report_path = generate_merged_html_report(
+                    "test-model",
+                    temp_dir,
+                    difficulty="easy",
+                )
+            html = report_path.read_text(encoding="utf-8")
+
+        self.assertEqual(report_path.name, "all.html")
+        self.assertIn("Easy — combined report", html)
+        self.assertIn("2 MRs", html)
+        self.assertIn("2 unique questions / 4 MR evaluations", html)
+        self.assertIn("MR: first", html)
+        self.assertIn("MR: second", html)
+
+
 class ProviderMetadataTests(unittest.TestCase):
     @patch("llms.mr_helper.update_costs")
     def test_helper_usage_is_sent_to_cost_tracker(self, update_costs):
+        reset_model_call_counts()
         usage = SimpleNamespace(prompt_tokens=10, completion_tokens=4, total_tokens=14)
         response = SimpleNamespace(
             choices=[SimpleNamespace(
@@ -75,8 +354,77 @@ class ProviderMetadataTests(unittest.TestCase):
 
         update_costs.assert_called_once_with(
             "helper-model",
-            {"prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14},
+            {
+                "prompt_tokens": 10,
+                "completion_tokens": 4,
+                "total_tokens": 14,
+                "cached_prompt_tokens": None,
+            },
+            role="helper",
         )
+        self.assertEqual(get_model_call_counts(), {"main": 0, "helper": 1})
+
+
+class CostTrackingRegressionTests(unittest.TestCase):
+    def test_reconcile_recovers_previously_unpriced_helper_usage(self):
+        old_payload = {
+            "version": 1,
+            "currency": "NZD",
+            "unit": "per_million_tokens",
+            "models": {
+                "gpt-5.6-luna": {
+                    "prompt_tokens": 100,
+                    "completion_tokens": 50,
+                    "total_tokens": 150,
+                    "cost_usd": 0.0,
+                    "missing_rate": True,
+                }
+            },
+        }
+        with TemporaryDirectory() as temp_dir:
+            cost_path = Path(temp_dir) / ".model_costs.json"
+            cost_path.write_text(json.dumps(old_payload), encoding="utf-8")
+            with patch.object(cost_tracker, "COST_TRACKING_PATH", str(cost_path)):
+                cost_tracker.reconcile_cost_file()
+            payload = json.loads(cost_path.read_text(encoding="utf-8"))
+
+        luna = payload["models"]["gpt-5.6-luna"]
+        self.assertEqual(payload["version"], 2)
+        self.assertEqual(payload["currency"], "USD")
+        self.assertNotIn("missing_rate", luna)
+        self.assertTrue(luna["recovered_previously_unpriced_cost"])
+        self.assertAlmostEqual(luna["cost_usd"], 0.00008)
+        self.assertAlmostEqual(luna["usage_by_role"]["helper"]["cost_usd"], 0.00008)
+
+    def test_costs_are_split_by_exact_model_and_role(self):
+        with TemporaryDirectory() as temp_dir:
+            cost_path = Path(temp_dir) / ".model_costs.json"
+            with patch.object(cost_tracker, "COST_TRACKING_PATH", str(cost_path)):
+                cost_tracker.reset_model_call_counts()
+                cost_tracker.update_costs(
+                    "gpt-5.6-terra",
+                    {
+                        "prompt_tokens": 100,
+                        "cached_prompt_tokens": 20,
+                        "completion_tokens": 50,
+                    },
+                )
+                cost_tracker.update_costs(
+                    "gpt-5.6-luna",
+                    {"prompt_tokens": 100, "completion_tokens": 50},
+                    role="helper",
+                )
+                payload = json.loads(cost_path.read_text(encoding="utf-8"))
+
+        terra = payload["models"]["gpt-5.6-terra"]
+        luna = payload["models"]["gpt-5.6-luna"]
+        self.assertEqual(payload["currency"], "USD")
+        self.assertAlmostEqual(terra["cost_usd"], 0.000764)
+        self.assertAlmostEqual(luna["cost_usd"], 0.00008)
+        self.assertIn("main", terra["usage_by_role"])
+        self.assertIn("helper", luna["usage_by_role"])
+        self.assertAlmostEqual(payload["totals"]["cost_usd"], 0.000844)
+        self.assertAlmostEqual(payload["totals"]["by_role"]["helper"]["cost_usd"], 0.00008)
 
     @patch("llms.base.update_costs")
     def test_claude_records_timing_and_stop_reason(self, _update_costs):

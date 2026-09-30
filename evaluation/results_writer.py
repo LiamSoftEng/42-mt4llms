@@ -9,7 +9,7 @@ from dataclasses import fields
 from pathlib import Path
 
 from evaluation.report import generate_html_report
-from evaluation.paths import build_results_dir, mr_folder_name, safe_name
+from evaluation.paths import mr_folder_name, safe_name
 from evaluation.metric_violations import check_metric_violations
 from evaluation.metric_rows import serialize_metric_side
 from evaluation.runner import LLMResult
@@ -26,6 +26,24 @@ _FOLLOWUP_CONTEXT_FIELDS = (
     - {"instruction_prefix", "instruction_suffix", "response"}
 )
 _FOLLOWUP_KEEP_FIELDS = _FOLLOWUP_CONTEXT_FIELDS | _FOLLOWUP_FIELDS
+
+
+def _single_difficulty(results: list[dict]) -> str | None:
+    difficulties = {
+        str(entry.get("difficulty", "")).lower()
+        for entry in results
+        if entry.get("difficulty")
+    }
+    return next(iter(difficulties)) if len(difficulties) == 1 else None
+
+
+def _scoped_model_dir(
+    results_dir: str,
+    model_name: str,
+    difficulty: str | None,
+) -> Path:
+    model_dir = Path(results_dir) / safe_name(model_name)
+    return model_dir / difficulty if difficulty else model_dir
 
 
 def _merge_by_question_id(existing_path: Path, new_entries: list[dict]) -> list[dict]:
@@ -48,13 +66,14 @@ def _merge_by_question_id(existing_path: Path, new_entries: list[dict]) -> list[
 
 def write_base_content(results: list[dict], model_name: str, results_dir: str) -> Path:
     """
-    Write base LLM content to results/<model>/base/base.json.
+    Write base LLM content to results/<model>/<difficulty>/base/base.json.
     Strips followup fields. Merges into any existing base.json rather
     than overwriting it, since `results` here may only be a subset
     (e.g. a single --mr run's questions), while base.json is meant to
     be a running ledger across all runs.
     """
-    out_dir = Path(results_dir) / safe_name(model_name) / "base"
+    difficulty = _single_difficulty(results)
+    out_dir = _scoped_model_dir(results_dir, model_name, difficulty) / "base"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "base.json"
 
@@ -77,13 +96,14 @@ def write_followup_content(
     relation_name: str,
     relation_id: int | None,
     results_dir: str,
+    difficulty: str | None = None,
 ) -> Path:
     """
-    Write followup LLM content to results/<model>/mr-XX-name/followup.json.
+    Write followup content below the run's difficulty-specific model folder.
     Keeps question context + followup fields only.
     """
     folder = mr_folder_name(relation_name, relation_id)
-    out_dir = Path(results_dir) / safe_name(model_name) / folder
+    out_dir = _scoped_model_dir(results_dir, model_name, difficulty) / folder
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / "followup.json"
 
@@ -124,13 +144,19 @@ def write_all_outputs(
     Called at the end of runtests.py when --run-tests is active.
     """
     has_mr = bool(relation_name)
+    difficulty = _single_difficulty(results)
 
     # Write content files
     base_content_path = write_base_content(results, model_name, results_dir)
     followup_content_path = None
     if has_mr:
         followup_content_path = write_followup_content(
-            results, model_name, relation_name, relation_id, results_dir
+            results,
+            model_name,
+            relation_name,
+            relation_id,
+            results_dir,
+            difficulty,
         )
 
     # ── Base results JSON ────────────────────────────────────────────────────
@@ -143,7 +169,9 @@ def write_all_outputs(
     if has_mr:
         folder = mr_folder_name(relation_name, relation_id)
         followup_results_path = (
-            Path(results_dir) / safe_name(model_name) / folder / "followup.results.json"
+            _scoped_model_dir(results_dir, model_name, difficulty)
+            / folder
+            / "followup.results.json"
         )
         followup_rows = [
             serialize_metric_side(row, "followup")
@@ -153,12 +181,13 @@ def write_all_outputs(
         write_results_json(followup_rows, followup_results_path)
 
     # ── HTML report ──────────────────────────────────────────────────────────
-    safe = safe_name(model_name)
+    model_dir = _scoped_model_dir(results_dir, model_name, difficulty)
     if has_mr:
-        out_dir = build_results_dir(model_name, relation_name, relation_id)
+        out_dir = model_dir / mr_folder_name(relation_name, relation_id)
+        out_dir.mkdir(parents=True, exist_ok=True)
         html_path = out_dir / f"{out_dir.name}.html"
     else:
-        html_path = Path(results_dir) / safe / "base" / "base.html"
+        html_path = model_dir / "base" / "base.html"
 
     generate_html_report(
         base_results_path=base_results_path,
@@ -169,17 +198,22 @@ def write_all_outputs(
     )
 
 
-def write_violations_log(model_name: str, results_dir: str) -> Path:
+def write_violations_log(
+    model_name: str,
+    results_dir: str,
+    difficulty: str | None = None,
+) -> Path:
     """
     Scan each per-MR followup results file for violated metamorphic relations,
     where a violation is either a failed test-verdict match (mr_holds == False)
-    or a metric delta exceeding its configured threshold (METRIC_VARIANCE_THRESHOLDS).
+    or a metric flagged by its one-sample t-test against the per-question
+    repeat baseline (see evaluation.metric_violations.check_metric_violations).
     Source-side metrics are joined from the base running ledger by question_id.
 
     The log is JSONL (one object per line), matching the helper_call_log
     format, with a timestamp first on each record.
     """
-    model_dir = Path(results_dir) / safe_name(model_name)
+    model_dir = _scoped_model_dir(results_dir, model_name, difficulty)
     out_path = model_dir / "violations.json"
 
     base_by_qid: dict[str, dict] = {}
@@ -217,7 +251,7 @@ def write_violations_log(model_name: str, results_dir: str) -> Path:
                 b = base_by_qid.get(qid, {})
 
                 test_violation = row.get("mr_holds") is False
-                metric_violations = check_metric_violations(b, row)
+                metric_violations = check_metric_violations(qid, row)
 
                 if not test_violation and not metric_violations:
                     continue
